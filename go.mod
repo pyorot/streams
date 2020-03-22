@@ -1,6 +1,7 @@
 module github.com/Pyorot/streams
 
 go 1.14
+// +heroku goVersion go1.12
 
 require (
 	github.com/bwmarrin/discordgo v0.20.2
