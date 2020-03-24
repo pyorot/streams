@@ -46,7 +46,7 @@ func role(new map[string]*stream) {
 		_, isInNew := new[user]
 		if !isInNew {
 			removesCh[user] = roleRemove(roles[user]) // async call; registers await chan
-			time.Sleep(2 * time.Second)               // avoid 5 posts / 5s rate limit
+			time.Sleep(1 * time.Second)               // avoid 5 posts / 5s rate limit
 			fmt.Printf("r | - %s\n", user)
 		}
 	}
@@ -55,7 +55,7 @@ func role(new map[string]*stream) {
 		userID, isReg := twicord[user] // look-up Twitch username in twicord (will ignore user if not found)
 		if !isInOld && isReg {
 			addsCh[user] = roleAdd(userID) // async call; registers await chan
-			time.Sleep(2 * time.Second)    // avoid 5 posts / 5s rate limit
+			time.Sleep(1 * time.Second)    // avoid 5 posts / 5s rate limit
 			fmt.Printf("r | + %s\n", user)
 		}
 	}

@@ -34,12 +34,12 @@ func msgInit() chan (bool) {
 		// pick msgs that we'd been managing on last shutdown; decode + register them
 		for _, msg := range history {
 			if len(msg.Embeds) == 1 && msg.Embeds[0].Color == 0x00ff00 { // pick green msgs with 1 embed
-				user := msg.Embeds[0].Title[:strings.IndexByte(msg.Embeds[0].Title, ' ')] // first word in title
+				user := msg.Embeds[0].Author.Name[:strings.IndexByte(msg.Embeds[0].Author.Name, ' ')] // first word in title
 				startTime, err := time.Parse("2006-01-02T15:04:05-07:00", msg.Embeds[0].Timestamp)
 				exitIfError(err)
 				stream := stream{
 					UserName:  user,
-					Title:     msg.Embeds[0].Description,
+					Title:     msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')],
 					StartedAt: startTime,
 				}
 				msgs[strings.ToLower(user)] = &msgsEntry{&stream, msg.ID} // register stream decoded from msg
@@ -147,6 +147,7 @@ func msgEdit(msgID string, stream *stream, active bool) {
 func generateMsg(s *stream, live bool) *discordgo.MessageEmbed {
 	var colour int
 	var postText, thumbnail string
+	var URL string = "https://twitch.tv/" + s.UserName
 	if live {
 		colour = 0x00ff00 // green
 		postText = " is live"
@@ -157,10 +158,14 @@ func generateMsg(s *stream, live bool) *discordgo.MessageEmbed {
 		colour = 0xff0000 // red
 		postText = " was live"
 	}
+	_, isReg := twicord[strings.ToLower(s.UserName)]
 	return &discordgo.MessageEmbed{
-		Title:       s.UserName + postText,
-		Description: s.Title,
-		URL:         "https://twitch.tv/" + s.UserName,
+		Author: &discordgo.MessageEmbedAuthor{
+			Name:    s.UserName + postText,
+			URL:     URL,
+			IconURL: fmt.Sprintf("http://icons.iconarchive.com/icons/ph03nyx/super-mario/256/Hat-%s-icon.png", ifThenElse(isReg, "Mario", "Wario")),
+		},
+		Description: fmt.Sprintf("[%s](%s)", s.Title, URL),
 		Color:       colour,
 		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: thumbnail},
 		Timestamp:   s.StartedAt.Format("2006-01-02T15:04:05Z"),
