@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/Pyorot/streams/log"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -45,7 +47,7 @@ func msgInit() chan (bool) {
 				msgs[strings.ToLower(user)] = &msgsEntry{&stream, msg.ID} // register stream decoded from msg
 			}
 		}
-		fmt.Printf("m | init [%d]\n", len(msgs))
+		log.Insta <- fmt.Sprintf("m | init [%d]", len(msgs))
 		res <- true
 	}()
 	return res
@@ -61,7 +63,7 @@ func msg() {
 			_, isInNew := new[user]
 			if !isInNew { // remove
 				commands = append(commands, command{'r', user, nil})
-				fmt.Printf("m | - %s\n", user)
+				log.Insta <- "m | - " + user
 			}
 		}
 		for user := range new { // iterate thru new to pick edits + adds
@@ -69,10 +71,10 @@ func msg() {
 			_, isInOld := msgs[user]
 			if isInOld && streamNew.Title != msgs[user].stream.Title { // edit if title changed
 				commands = append(commands, command{'e', user, streamNew})
-				fmt.Printf("m | ~ %s\n", user)
+				log.Insta <- "m | ~ " + user
 			} else if !isInOld { // add
 				commands = append(commands, command{'a', user, streamNew})
-				fmt.Printf("m | + %s\n", user)
+				log.Insta <- "m | + " + user
 			}
 		}
 
@@ -98,7 +100,7 @@ func msg() {
 				}
 				// then do swaps + updates
 				if minID != msgID { // if a swap even needs to be done
-					fmt.Printf("m | %s ↔ %s\n", user, minUser)
+					log.Insta <- "m | " + user + " ↔ " + minUser
 					msgs[user].msgID, msgs[minUser].msgID = minID, msgID     // swap in internal state
 					msgEdit(msgs[minUser].msgID, msgs[minUser].stream, true) // edit newer msg (now of an open stream)
 				}
@@ -106,7 +108,7 @@ func msg() {
 				delete(msgs, user)                                  // dereference in internal state
 			}
 		}
-		fmt.Printf("m | ok [%d]\n", len(msgs))
+		log.Bkgd <- fmt.Sprintf("m | ok [%d]", len(msgs))
 	}
 }
 
@@ -119,7 +121,7 @@ func msgAdd() (msgID string) {
 		)
 		time.Sleep(time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
-			fmt.Printf("x | m+: %s\n", err)
+			log.Insta <-  fmt.Sprintf("x | m+: %s", err)
 		} else {
 			return msgOut.ID
 		}
@@ -136,7 +138,7 @@ func msgEdit(msgID string, stream *stream, active bool) {
 		})
 		time.Sleep(time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
-			fmt.Printf("x | m~: %s\n", err)
+			log.Insta <- fmt.Sprintf("x | m~: %s", err)
 		} else {
 			return
 		}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/Pyorot/streams/log"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
 	"github.com/nicklaw5/helix"
@@ -26,29 +28,14 @@ var getStreamsParams helix.StreamsParams // the const argument for getStreams ca
 
 type stream helix.Stream
 
-// ternary if macro
-func ifThenElse(cond bool, valueIfTrue interface{}, valueIfFalse interface{}) interface{} {
-	if cond {
-		return valueIfTrue
-	}
-	return valueIfFalse
-}
-
-// fatal error macro, used in initialisations
-func exitIfError(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
 // runs on program start
 func init() {
 	// load env vars from .env file if present
 	err := godotenv.Load()
 	if err == nil {
-		fmt.Printf(". | Env vars loaded from .env\n")
+		log.Insta <- ". | Env vars loaded from .env"
 	} else if os.IsNotExist(err) {
-		fmt.Printf(". | Env vars pre-loaded\n")
+		log.Insta <- ". | Env vars pre-loaded"
 	} else {
 		panic(err)
 	}
@@ -83,7 +70,7 @@ func init() {
 	// async parallel initialisation (see respective functions)
 	task1, task2, task3 := msgInit(), roleInit(), twicordInit() // run async tasks, which return channels,
 	_, _, _ = <-task1, <-task2, <-task3                         // awaited by doing blocking reads on them
-	fmt.Printf(". | initialised\n")
+	log.Insta <- ". | initialised\n"
 }
 
 // main function (infinite loop)
@@ -91,7 +78,7 @@ func main() {
 	for {
 		new, err := fetch() // synchronous Twitch http call
 		if err == nil {
-			fmt.Printf("\n< | %s\n", time.Now().Format("15:04:05"))
+			log.Bkgd <- fmt.Sprintf("< | %s", time.Now().Format("15:04:05"))
 			msgCh <- new  // post to msgCh, read by msg(), a permanent worker coroutine thread
 			go role(*new) // async call to role(), runs as a task (no return)
 			time.Sleep(60 * time.Second)
@@ -113,7 +100,7 @@ func fetch() (*map[string]*stream, error) {
 			dict[strings.ToLower(list[i].UserName)] = &s
 		}
 	} else {
-		fmt.Printf("\nx | < : %s\n", err)
+		log.Insta <- fmt.Sprintf("x | < : %s", err)
 	}
 	return &dict, err
 }
@@ -138,7 +125,7 @@ func twicordInit() chan (bool) {
 				exitIfError(scanner.Err())
 			}
 		}
-		fmt.Printf(". | twicord loaded [%d]\n", len(twicord))
+		log.Insta <- fmt.Sprintf(". | twicord loaded [%d]", len(twicord))
 		res <- true
 	}()
 	return res

@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"time"
+
+	log "github.com/Pyorot/streams/log"
 )
 
 var roles = make(map[string]string) // map of managed users (Twitch username → Discord userID)
@@ -31,7 +33,7 @@ func roleInit() chan (bool) {
 				}
 			}
 		}
-		fmt.Printf("r | init [%d/%d]\n", len(roles), userCount)
+		log.Insta <- fmt.Sprintf("r | init [%d/%d]", len(roles), userCount)
 		res <- true
 	}()
 	return res
@@ -47,7 +49,7 @@ func role(new map[string]*stream) {
 		if !isInNew {
 			removesCh[user] = roleRemove(roles[user]) // async call; registers await chan
 			time.Sleep(1 * time.Second)               // avoid 5 posts / 5s rate limit
-			fmt.Printf("r | - %s\n", user)
+			log.Insta <- "r | - " + user
 		}
 	}
 	for user := range new { // iterate thru new to pick additions
@@ -56,7 +58,7 @@ func role(new map[string]*stream) {
 		if !isInOld && isReg {
 			addsCh[user] = roleAdd(userID) // async call; registers await chan
 			time.Sleep(1 * time.Second)    // avoid 5 posts / 5s rate limit
-			fmt.Printf("r | + %s\n", user)
+			log.Insta <- "r | + " + user
 		}
 	}
 
@@ -72,7 +74,7 @@ func role(new map[string]*stream) {
 		}
 	}
 
-	fmt.Printf("r | ok [%d]\n", len(roles))
+	log.Bkgd <- fmt.Sprintf("r | ok [%d]", len(roles))
 }
 
 // non-blocking http req to add role to user; returns success
@@ -81,7 +83,7 @@ func roleAdd(userID string) chan (bool) {
 	go func() {
 		err := discord.GuildMemberRoleAdd(env["ROLE_SERVER_ID"], userID, env["ROLE_ID"])
 		if err != nil {
-			fmt.Printf("x | r+ | %s – %s\n", userID, err)
+			log.Insta <- fmt.Sprintf("x | r+ | %s : %s", userID, err)
 		}
 		res <- err == nil
 	}()
@@ -94,7 +96,7 @@ func roleRemove(userID string) chan (bool) {
 	go func() {
 		err := discord.GuildMemberRoleRemove(env["ROLE_SERVER_ID"], userID, env["ROLE_ID"])
 		if err != nil {
-			fmt.Printf("x | r- | %s – %s\n", userID, err)
+			log.Insta <- fmt.Sprintf("x | r- | %s : %s", userID, err)
 		}
 		res <- err == nil
 	}()
