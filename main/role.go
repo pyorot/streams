@@ -7,6 +7,9 @@ import (
 	log "github.com/Pyorot/streams/log"
 )
 
+var roleID string
+var roleServerID string
+
 var roles = make(map[string]string) // map of managed users (Twitch username → Discord userID)
 
 // non-blocking http req to load all users, then flag them for role removal (so we start afresh)
@@ -16,7 +19,7 @@ func roleInit() chan (bool) {
 		next := ""     // ID of next user, used to chain calls (endpoint has 1000-result limit)
 		userCount := 0 // will track total users detected
 		for {
-			users, err := discord.GuildMembers(env["ROLE_SERVER_ID"], next, 1000)
+			users, err := discord.GuildMembers(roleServerID, next, 1000)
 			exitIfError(err)
 			if len(users) == 0 { // found all users
 				break
@@ -25,7 +28,7 @@ func roleInit() chan (bool) {
 				userCount += len(users)
 				for _, user := range users {
 					for _, role := range user.Roles {
-						if role == env["ROLE_ID"] { // if managed role is in user's roles
+						if role == roleID { // if managed role is in user's roles
 							roles[user.User.ID] = user.User.ID // register user under Discord user ID *instead of Twitch username*
 							break                              // so that next incoming data comparison will def trigger a role-removal
 						}
@@ -81,7 +84,7 @@ func role(new map[string]*stream) {
 func roleAdd(userID string) chan (bool) {
 	res := make(chan (bool), 1)
 	go func() {
-		err := discord.GuildMemberRoleAdd(env["ROLE_SERVER_ID"], userID, env["ROLE_ID"])
+		err := discord.GuildMemberRoleAdd(roleServerID, userID, roleID)
 		if err != nil {
 			log.Insta <- fmt.Sprintf("x | r+ | %s : %s", userID, err)
 		}
@@ -94,7 +97,7 @@ func roleAdd(userID string) chan (bool) {
 func roleRemove(userID string) chan (bool) {
 	res := make(chan (bool), 1)
 	go func() {
-		err := discord.GuildMemberRoleRemove(env["ROLE_SERVER_ID"], userID, env["ROLE_ID"])
+		err := discord.GuildMemberRoleRemove(roleServerID, userID, roleID)
 		if err != nil {
 			log.Insta <- fmt.Sprintf("x | r- | %s : %s", userID, err)
 		}

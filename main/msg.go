@@ -12,9 +12,6 @@ import (
 
 // runs a single co-routine thread to process incoming info and synchronously send Discord commands
 
-var msgs = make(map[string]*msgsEntry, 60)   // map of currently managed messages (user → {stream, msgID})
-var msgCh = make(chan (*map[string]*stream)) // channel to receive input info from
-
 type msgsEntry struct {
 	stream *stream // streams object (has info on stream)
 	msgID  string  // the ID of the Discord message we're managing to represent this stream
@@ -26,40 +23,60 @@ type command struct { // represents an action to be done on Discord
 	stream *stream // stream object
 }
 
-// non-blocking http req to reload msg state from the msg Discord channel on startup
-func msgInit() chan (bool) {
-	res := make(chan (bool), 1) // returned immediately; posted to when done
-	go func() {                 // anonymous function in new thread; posts to res when done
-		// load message history
-		history, err := discord.ChannelMessages(env["CHANNEL_ID"], 50, "", "", "") // 50 msgs
-		exitIfError(err)
-		// pick msgs that we'd been managing on last shutdown; decode + register them
-		for _, msg := range history {
-			if len(msg.Embeds) == 1 && msg.Embeds[0].Color == 0x00ff00 { // pick green msgs with 1 embed
-				user := msg.Embeds[0].Author.Name[:strings.IndexByte(msg.Embeds[0].Author.Name, ' ')] // first word in title
-				startTime, err := time.Parse("2006-01-02T15:04:05-07:00", msg.Embeds[0].Timestamp)
-				exitIfError(err)
-				stream := stream{
-					UserName:  user,
-					Title:     msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')],
-					StartedAt: startTime,
-				}
-				msgs[strings.ToLower(user)] = &msgsEntry{&stream, msg.ID} // register stream decoded from msg
+type msgAgent struct {
+	inCh      chan (map[string]*stream)
+	msgs      map[string]*msgsEntry
+	channelID string
+	filtered  bool
+}
+
+func newMsgAgent(channelID string, filtered bool) chan (map[string]*stream) {
+	a := &msgAgent{
+		inCh:      make(chan map[string]*stream),
+		msgs:      make(map[string]*msgsEntry, 40),
+		channelID: channelID,
+		filtered:  filtered,
+	}
+	a.init()
+	go a.run()
+	return a.inCh
+}
+
+var msgChs = make([]chan (map[string]*stream), 0)
+
+var iconURLFail string
+var iconURLPass string
+var iconURLKnown string
+
+// blocking http req to reload msg state from the msg Discord channel on startup
+func (a *msgAgent) init() {
+	// load message history
+	history, err := discord.ChannelMessages(a.channelID, 50, "", "", "") // 50 msgs
+	exitIfError(err)
+	// pick msgs that we'd been managing on last shutdown; decode + register them
+	for _, msg := range history {
+		if len(msg.Embeds) == 1 && msg.Embeds[0].Color == 0x00ff00 { // pick green msgs with 1 embed
+			user := msg.Embeds[0].Author.Name[:strings.IndexByte(msg.Embeds[0].Author.Name, ' ')] // first word in title
+			startTime, err := time.Parse("2006-01-02T15:04:05-07:00", msg.Embeds[0].Timestamp)
+			exitIfError(err)
+			stream := stream{
+				UserName:  user,
+				Title:     msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')],
+				StartedAt: startTime,
 			}
+			a.msgs[strings.ToLower(user)] = &msgsEntry{&stream, msg.ID} // register stream decoded from msg
 		}
-		log.Insta <- fmt.Sprintf("m | init [%d]", len(msgs))
-		res <- true
-	}()
-	return res
+	}
+	log.Insta <- fmt.Sprintf("m | init [%d]", len(a.msgs))
 }
 
 // the message-managing co-routine
-func msg() {
+func (a *msgAgent) run() {
 	for {
 		// generate command queue from new data
-		new := *<-msgCh                // input
+		new := <-a.inCh                // input
 		commands := make([]command, 0) // output
-		for user := range msgs {       // iterate thru old to pick removals
+		for user := range a.msgs {     // iterate thru old to pick removals
 			_, isInNew := new[user]
 			if !isInNew { // remove
 				commands = append(commands, command{'r', user, nil})
@@ -68,8 +85,8 @@ func msg() {
 		}
 		for user := range new { // iterate thru new to pick edits + adds
 			streamNew := new[user]
-			_, isInOld := msgs[user]
-			if isInOld && streamNew.Title != msgs[user].stream.Title { // edit if title changed
+			_, isInOld := a.msgs[user]
+			if isInOld && streamNew.Title != a.msgs[user].stream.Title { // edit if title changed
 				commands = append(commands, command{'e', user, streamNew})
 				log.Insta <- "m | ~ " + user
 			} else if !isInOld { // add
@@ -83,45 +100,45 @@ func msg() {
 		for _, cmd := range commands {
 			switch cmd.action {
 			case 'a': // will create new msg, then edit in info (to avoid losing a duplicate if it fails)
-				msgID := msgAdd()                              // create new blank (yellow) msg
-				msgEdit(msgID, cmd.stream, true)               // edit it to current info (turns green)
-				msgs[cmd.user] = &msgsEntry{cmd.stream, msgID} // register msg
+				msgID := a.msgAdd()                              // create new blank (yellow) msg
+				a.msgEdit(msgID, cmd.stream, true)               // edit it to current info (turns green)
+				a.msgs[cmd.user] = &msgsEntry{cmd.stream, msgID} // register msg
 			case 'e':
-				msgEdit(msgs[cmd.user].msgID, cmd.stream, true) // edit existing msg to current info
-				msgs[cmd.user].stream = cmd.stream              // update stream object (pointer)
+				a.msgEdit(a.msgs[cmd.user].msgID, cmd.stream, true) // edit existing msg to current info
+				a.msgs[cmd.user].stream = cmd.stream                // update stream object (pointer)
 			case 'r': // will swap its msg with oldest green msg (keeps greens grouped at bottom), then turns it red
 				// first, find ID of oldest green msg
-				user, msgID := cmd.user, msgs[cmd.user].msgID // msg being closed
-				minUser, minID := user, msgID                 // oldest green msg will go here
-				for userTest := range msgs {                  // find lexicographic min msg ID (lower ID = older msg)
-					if strings.Compare(msgs[userTest].msgID, minID) == -1 {
-						minUser, minID = userTest, msgs[userTest].msgID
+				user, msgID := cmd.user, a.msgs[cmd.user].msgID // msg being closed
+				minUser, minID := user, msgID                   // oldest green msg will go here
+				for userTest := range a.msgs {                  // find lexicographic min msg ID (lower ID = older msg)
+					if strings.Compare(a.msgs[userTest].msgID, minID) == -1 {
+						minUser, minID = userTest, a.msgs[userTest].msgID
 					}
 				}
 				// then do swaps + updates
 				if minID != msgID { // if a swap even needs to be done
 					log.Insta <- "m | " + user + " ↔ " + minUser
-					msgs[user].msgID, msgs[minUser].msgID = minID, msgID     // swap in internal state
-					msgEdit(msgs[minUser].msgID, msgs[minUser].stream, true) // edit newer msg (now of an open stream)
+					a.msgs[user].msgID, a.msgs[minUser].msgID = minID, msgID       // swap in internal state
+					a.msgEdit(a.msgs[minUser].msgID, a.msgs[minUser].stream, true) // edit newer msg (now of an open stream)
 				}
-				msgEdit(msgs[user].msgID, msgs[user].stream, false) // edit (older) msg (now of a closed stream)
-				delete(msgs, user)                                  // dereference in internal state
+				a.msgEdit(a.msgs[user].msgID, a.msgs[user].stream, false) // edit (older) msg (now of a closed stream)
+				delete(a.msgs, user)                                      // dereference in internal state
 			}
 		}
-		log.Bkgd <- fmt.Sprintf("m | ok [%d]", len(msgs))
+		log.Bkgd <- fmt.Sprintf("m | ok [%d]", len(a.msgs))
 	}
 }
 
 // blocking http req to post empty yellow msg (retry until successful); returns ID of new msg if successful
-func msgAdd() (msgID string) {
+func (a *msgAgent) msgAdd() (msgID string) {
 	for {
 		msgOut, err := discord.ChannelMessageSendComplex(
-			env["CHANNEL_ID"],
+			a.channelID,
 			&discordgo.MessageSend{Embed: &discordgo.MessageEmbed{Color: 0xffff00}},
 		)
 		time.Sleep(time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
-			log.Insta <-  fmt.Sprintf("x | m+: %s", err)
+			log.Insta <- fmt.Sprintf("x | m+: %s", err)
 		} else {
 			return msgOut.ID
 		}
@@ -129,10 +146,10 @@ func msgAdd() (msgID string) {
 }
 
 // blocking http req to edit msg (retry until successful)
-func msgEdit(msgID string, stream *stream, active bool) {
+func (a *msgAgent) msgEdit(msgID string, stream *stream, active bool) {
 	for {
 		_, err := discord.ChannelMessageEditComplex(&discordgo.MessageEdit{
-			Channel: env["CHANNEL_ID"],
+			Channel: a.channelID,
 			ID:      msgID,
 			Embed:   generateMsg(stream, active),
 		})

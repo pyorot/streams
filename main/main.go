@@ -19,17 +19,35 @@ import (
 // role.go: managing a streams role (posting to Discord)
 
 var err error                            // placeholder error
-var env = make(map[string]string)        // environment variables
 var twitch *helix.Client                 // Twitch client
 var discord *discordgo.Session           // Discord client
-var twicord = make(map[string]string)    // map: twitch user -> Discord user ID
 var getStreamsParams helix.StreamsParams // the const argument for getStreams calls
+
+var filterTags []string               // Twitch tags to look for
+var filterKeywords []string           // Title keywords to look for
+var twicordChannel string             // Channel to DL twicord data from
+var twicord = make(map[string]string) // map: twitch user -> Discord user ID
 // twicord is used to find Discord users to assign roles to + maybe to filter the msg channel
 
 type stream helix.Stream
 
+func getEnvOrExit(key string) string {
+	val, exists := os.LookupEnv(key)
+	if !exists {
+		panic(fmt.Sprintf("Missing env var: %s", key))
+	}
+	return val
+}
+
+func getEnvOrEmpty(key string) string {
+	val, _ := os.LookupEnv(key)
+	return val
+}
+
 // runs on program start
 func init() {
+	var tasks = make([]chan (bool), 0)
+
 	// load env vars from .env file if present
 	err := godotenv.Load()
 	if err == nil {
@@ -40,36 +58,64 @@ func init() {
 		panic(err)
 	}
 
-	// register env vars in env map (assert existence)
-	for _, key := range []string{
-		"TWITCH_KEY", "DISCORD_TOKEN", "GAME_ID",
-		"CHANNEL_ID", "ROLE_SERVER_ID", "ROLE_ID",
-		"TWICORD_CHANNEL_ID",
-	} {
-		val, exists := os.LookupEnv(key)
-		if exists {
-			env[key] = val
-		} else {
-			panic(fmt.Sprintf("Env var '%s' not found.", key))
+	// core init
+	twitch, err = helix.NewClient(&helix.Options{ClientID: getEnvOrExit("TWITCH")})
+	exitIfError(err)
+	discord, err = discordgo.New("Bot " + getEnvOrExit("DISCORD"))
+	exitIfError(err)
+	getStreamsParams = helix.StreamsParams{
+		GameIDs: []string{getEnvOrExit("GAME")}, // list of games to query
+		First:   100,                            // maximum query results (limit is 100)
+	}
+
+	// filter init
+	twicordChannel = getEnvOrEmpty("TWICORD_CHANNEL")
+	filterTags = strings.Split(getEnvOrEmpty("FILTER_TAGS"), ",")
+	filterKeywords = strings.Split(getEnvOrEmpty("FILTER_KEYWORDS"), ",")
+	if twicordChannel != "" {
+		tasks = append(tasks, twicordInit()) // run async task, which returns channel
+	}
+	log.Insta <- ". | Twicord channel: " + twicordChannel
+	log.Insta <- fmt.Sprintf(". | Filter tags: %s", filterTags)
+	log.Insta <- fmt.Sprintf(". | Filter keywords: %s", filterKeywords)
+
+	// msg
+	for _, channel := range strings.Split(getEnvOrEmpty("MSG_CHANNELS"), ",") {
+		if len(channel) >= 1 {
+			switch channel[0] {
+			case '*':
+				fallthrough
+			case '+':
+				msgChs = append(msgChs, newMsgAgent(channel[1:], channel[0] == '*'))
+				log.Insta <- fmt.Sprintf("m | started %s", channel)
+			default:
+				panic(fmt.Sprintf("First char of channel ID %s must be * or +", channel))
+			}
 		}
 	}
 
-	// init clients + constants
-	twitch, err = helix.NewClient(&helix.Options{ClientID: env["TWITCH_KEY"]})
-	exitIfError(err)
-	discord, err = discordgo.New("Bot " + env["DISCORD_TOKEN"])
-	exitIfError(err)
-	getStreamsParams = helix.StreamsParams{
-		GameIDs: []string{env["GAME_ID"]}, // list of games to query
-		First:   100,                      // maximum query results (limit is 100)
+	// msg icons
+	if url := getEnvOrEmpty("MSG_ICON"); url != "" {
+		iconURLFail, iconURLPass, iconURLKnown = url, url, url
+		if url2 := getEnvOrEmpty("MSG_ICON_PASS"); url2 != "" {
+			iconURLPass, iconURLKnown = url2, url2
+			if url3 := getEnvOrEmpty("MSG_ICON_KNOWN"); url3 != "" {
+				iconURLKnown = url3
+			}
+		}
 	}
 
-	// start worker threads
-	go msg()
+	// role
+	if roleID = getEnvOrEmpty("ROLE"); roleID != "" {
+		roleServerID = getEnvOrExit("ROLE_SERVER")
+		tasks = append(tasks, roleInit()) // run async task, which returns channel
+	}
 
 	// async parallel initialisation (see respective functions)
-	task1, task2, task3 := msgInit(), roleInit(), twicordInit() // run async tasks, which return channels,
-	_, _, _ = <-task1, <-task2, <-task3                         // awaited by doing blocking reads on them
+	for _, task := range tasks {
+		<-task // await tasks doing blocking reads on them
+	}
+
 	log.Insta <- ". | initialised\n"
 }
 
@@ -79,15 +125,19 @@ func main() {
 		new, err := fetch() // synchronous Twitch http call
 		if err == nil {
 			log.Bkgd <- fmt.Sprintf("< | %s", time.Now().Format("15:04:05"))
-			msgCh <- new  // post to msgCh, read by msg(), a permanent worker coroutine thread
-			go role(*new) // async call to role(), runs as a task (no return)
+			for _, msgCh := range msgChs {
+				msgCh <- new // post to msgCh, read by msg(), a permanent worker coroutine thread
+			}
+			if roleID != "" {
+				go role(new) // async call to role(), runs as a task (no return)
+			}
 			time.Sleep(60 * time.Second)
 		}
 	}
 }
 
 // blocking http request to Twitch getStreams
-func fetch() (*map[string]*stream, error) {
+func fetch() (map[string]*stream, error) {
 	dict := make(map[string]*stream)                 // the return dict (twitch username → stream object)
 	res, err := twitch.GetStreams(&getStreamsParams) //
 	if err == nil && res.StatusCode != 200 {         // reinterpret HTTP error as actual error
@@ -102,7 +152,7 @@ func fetch() (*map[string]*stream, error) {
 	} else {
 		log.Insta <- fmt.Sprintf("x | < : %s", err)
 	}
-	return &dict, err
+	return dict, err
 }
 
 // non-blocking http req to read twicord data from a Discord chan
@@ -111,7 +161,7 @@ func fetch() (*map[string]*stream, error) {
 func twicordInit() chan (bool) {
 	res := make(chan (bool), 1) // returned immediately; posted to when done
 	go func() {                 // anonymous function in new thread; posts to res when done
-		history, err := discord.ChannelMessages(env["TWICORD_CHANNEL_ID"], 20, "", "", "") // get last 20 msgs
+		history, err := discord.ChannelMessages(twicordChannel, 20, "", "", "") // get last 20 msgs
 		exitIfError(err)
 		for _, msg := range history {
 			if len(msg.Content) >= 8 && msg.Content[:7] == "twicord" { // pick msgs starting with "twicord"
