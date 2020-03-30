@@ -25,6 +25,7 @@ var getStreamsParams helix.StreamsParams // the const argument for getStreams ca
 
 var filterTags []string               // Twitch tags to look for
 var filterKeywords []string           // Title keywords to look for
+var filterRequired bool               // will generate filtered map of incoming streams
 var twicordChannel string             // Channel to DL twicord data from
 var twicord = make(map[string]string) // map: twitch user -> Discord user ID
 // twicord is used to find Discord users to assign roles to + maybe to filter the msg channel
@@ -70,23 +71,28 @@ func init() {
 
 	// filter init
 	twicordChannel = getEnvOrEmpty("TWICORD_CHANNEL")
-	filterTags = strings.Split(getEnvOrEmpty("FILTER_TAGS"), ",")
-	filterKeywords = strings.Split(getEnvOrEmpty("FILTER_KEYWORDS"), ",")
+	if rawTags := getEnvOrEmpty("FILTER_TAGS"); rawTags != "" {
+		filterTags = strings.Split(rawTags, ",")
+	}
+	if rawKeywords := getEnvOrEmpty("FILTER_KEYWORDS"); rawKeywords != "" {
+		filterKeywords = strings.Split(rawKeywords, ",")
+	}
 	if twicordChannel != "" {
 		tasks = append(tasks, twicordInit()) // run async task, which returns channel
 	}
 	log.Insta <- ". | Twicord channel: " + twicordChannel
-	log.Insta <- fmt.Sprintf(". | Filter tags: %s", filterTags)
-	log.Insta <- fmt.Sprintf(". | Filter keywords: %s", filterKeywords)
+	log.Insta <- fmt.Sprintf(". | Filter tags [%d]: %s", len(filterTags), filterTags)
+	log.Insta <- fmt.Sprintf(". | Filter keywords [%d]: %s", len(filterKeywords), filterKeywords)
 
 	// msg
 	for _, channel := range strings.Split(getEnvOrEmpty("MSG_CHANNELS"), ",") {
 		if len(channel) >= 1 {
 			switch channel[0] {
-			case '*':
-				fallthrough
 			case '+':
-				msgChs = append(msgChs, newMsgAgent(channel[1:], channel[0] == '*'))
+				filterRequired = true
+				fallthrough
+			case '*':
+				msgAgents = append(msgAgents, newMsgAgent(channel[1:], channel[0] == '+'))
 				log.Insta <- fmt.Sprintf("m | started %s", channel)
 			default:
 				panic(fmt.Sprintf("First char of channel ID %s must be * or +", channel))
@@ -125,8 +131,22 @@ func main() {
 		new, err := fetch() // synchronous Twitch http call
 		if err == nil {
 			log.Bkgd <- fmt.Sprintf("< | %s", time.Now().Format("15:04:05"))
-			for _, msgCh := range msgChs {
-				msgCh <- new // post to msgCh, read by msg(), a permanent worker coroutine thread
+			var newFiltered map[string]*stream
+			if filterRequired {
+				newFiltered = make(map[string]*stream)
+				for user, stream := range new {
+					_, isReg := twicord[user]
+					if isReg || filterStream(stream) {
+						newFiltered[user] = stream
+					}
+				}
+			}
+			for _, a := range msgAgents {
+				if a.filtered {
+					a.inCh <- newFiltered
+				} else {
+					a.inCh <- new // post to msgCh, read by msg(), a permanent worker coroutine thread
+				}
 			}
 			if roleID != "" {
 				go role(new) // async call to role(), runs as a task (no return)
@@ -169,8 +189,8 @@ func twicordInit() chan (bool) {
 				scanner.Scan()                                              // skip 1st line ("twicord<comment>\n")
 				for scanner.Scan() {
 					line := scanner.Text()
-					splitIndex := strings.IndexByte(line, ' ')       // line is space-delimited
-					twicord[line[splitIndex+1:]] = line[:splitIndex] // dict is rhs → lhs
+					splitIndex := strings.IndexByte(line, ' ')                        // line is space-delimited
+					twicord[strings.ToLower(line[splitIndex+1:])] = line[:splitIndex] // dict is rhs → lhs
 				}
 				exitIfError(scanner.Err())
 			}
@@ -179,4 +199,25 @@ func twicordInit() chan (bool) {
 		res <- true
 	}()
 	return res
+}
+
+func filterStream(s *stream) bool {
+	// check tags
+	for _, tag1 := range s.TagIDs {
+		for _, tag2 := range filterTags {
+			if tag1 == tag2 {
+				return true
+			}
+		}
+	}
+	// check keywords
+	title := strings.ToLower(s.Title)
+	for _, keyword := range filterKeywords {
+		if strings.Contains(title, keyword) {
+			fmt.Printf("!{%s|%s}\n", title, keyword)
+			return true
+		}
+	}
+	// else
+	return false
 }

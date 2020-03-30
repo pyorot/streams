@@ -30,7 +30,7 @@ type msgAgent struct {
 	filtered  bool
 }
 
-func newMsgAgent(channelID string, filtered bool) chan (map[string]*stream) {
+func newMsgAgent(channelID string, filtered bool) *msgAgent {
 	a := &msgAgent{
 		inCh:      make(chan map[string]*stream),
 		msgs:      make(map[string]*msgsEntry, 40),
@@ -39,10 +39,10 @@ func newMsgAgent(channelID string, filtered bool) chan (map[string]*stream) {
 	}
 	a.init()
 	go a.run()
-	return a.inCh
+	return a
 }
 
-var msgChs = make([]chan (map[string]*stream), 0)
+var msgAgents = make([]*msgAgent, 0)
 
 var iconURLFail string
 var iconURLPass string
@@ -80,7 +80,6 @@ func (a *msgAgent) run() {
 			_, isInNew := new[user]
 			if !isInNew { // remove
 				commands = append(commands, command{'r', user, nil})
-				log.Insta <- "m | - " + user
 			}
 		}
 		for user := range new { // iterate thru new to pick edits + adds
@@ -88,10 +87,8 @@ func (a *msgAgent) run() {
 			_, isInOld := a.msgs[user]
 			if isInOld && streamNew.Title != a.msgs[user].stream.Title { // edit if title changed
 				commands = append(commands, command{'e', user, streamNew})
-				log.Insta <- "m | ~ " + user
 			} else if !isInOld { // add
 				commands = append(commands, command{'a', user, streamNew})
-				log.Insta <- "m | + " + user
 			}
 		}
 
@@ -100,10 +97,12 @@ func (a *msgAgent) run() {
 		for _, cmd := range commands {
 			switch cmd.action {
 			case 'a': // will create new msg, then edit in info (to avoid losing a duplicate if it fails)
+				log.Insta <- "m | + " + cmd.user
 				msgID := a.msgAdd()                              // create new blank (yellow) msg
 				a.msgEdit(msgID, cmd.stream, true)               // edit it to current info (turns green)
 				a.msgs[cmd.user] = &msgsEntry{cmd.stream, msgID} // register msg
 			case 'e':
+				log.Insta <- "m | ~ " + cmd.user
 				a.msgEdit(a.msgs[cmd.user].msgID, cmd.stream, true) // edit existing msg to current info
 				a.msgs[cmd.user].stream = cmd.stream                // update stream object (pointer)
 			case 'r': // will swap its msg with oldest green msg (keeps greens grouped at bottom), then turns it red
@@ -116,8 +115,8 @@ func (a *msgAgent) run() {
 					}
 				}
 				// then do swaps + updates
+				log.Insta <- "m | - " + user + " ↔ " + minUser
 				if minID != msgID { // if a swap even needs to be done
-					log.Insta <- "m | " + user + " ↔ " + minUser
 					a.msgs[user].msgID, a.msgs[minUser].msgID = minID, msgID       // swap in internal state
 					a.msgEdit(a.msgs[minUser].msgID, a.msgs[minUser].stream, true) // edit newer msg (now of an open stream)
 				}
@@ -177,12 +176,17 @@ func generateMsg(s *stream, live bool) *discordgo.MessageEmbed {
 		colour = 0xff0000 // red
 		postText = " was live"
 	}
-	_, isReg := twicord[strings.ToLower(s.UserName)]
+	iconURL := iconURLFail
+	if _, isReg := twicord[strings.ToLower(s.UserName)]; isReg {
+		iconURL = iconURLKnown
+	} else if filterStream(s) {
+		iconURL = iconURLPass
+	}
 	return &discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{
 			Name:    s.UserName + postText,
 			URL:     URL,
-			IconURL: fmt.Sprintf("http://icons.iconarchive.com/icons/ph03nyx/super-mario/256/Hat-%s-icon.png", ifThenElse(isReg, "Mario", "Wario")),
+			IconURL: iconURL,
 		},
 		Description: fmt.Sprintf("[%s](%s)", s.Title, URL),
 		Color:       colour,
