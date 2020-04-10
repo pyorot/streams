@@ -30,23 +30,24 @@ type msgAgent struct {
 	filtered  bool
 }
 
-func newMsgAgent(channelID string, filtered bool) *msgAgent {
-	a := &msgAgent{
-		inCh:      make(chan map[string]*stream),
-		msgs:      make(map[string]*msgsEntry, 40),
-		channelID: channelID,
-		filtered:  filtered,
-	}
-	a.init()
-	go a.run()
-	return a
+func newMsgAgent(channelID string, filtered bool) chan (*msgAgent) {
+	res := make(chan (*msgAgent))
+	go func() {
+		a := &msgAgent{
+			inCh:      make(chan map[string]*stream),
+			msgs:      make(map[string]*msgsEntry, 40),
+			channelID: channelID,
+			filtered:  filtered,
+		}
+		a.init()
+		go a.run()
+		res <- a
+	}()
+	return res
 }
 
 var msgAgents = make([]*msgAgent, 0)
-
-var iconURLFail string
-var iconURLPass string
-var iconURLKnown string
+var iconURL = make([]string, 3)
 
 // blocking http req to reload msg state from the msg Discord channel on startup
 func (a *msgAgent) init() {
@@ -56,15 +57,23 @@ func (a *msgAgent) init() {
 	// pick msgs that we'd been managing on last shutdown; decode + register them
 	for _, msg := range history {
 		if len(msg.Embeds) == 1 && msg.Embeds[0].Color == 0x00ff00 { // pick green msgs with 1 embed
-			user := msg.Embeds[0].Author.Name[:strings.IndexByte(msg.Embeds[0].Author.Name, ' ')] // first word in title
-			startTime, err := time.Parse("2006-01-02T15:04:05-07:00", msg.Embeds[0].Timestamp)
-			exitIfError(err)
-			stream := stream{
-				UserName:  user,
-				Title:     msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')],
-				StartedAt: startTime,
+			s := stream{
+				user:  msg.Embeds[0].Author.Name[:strings.IndexByte(msg.Embeds[0].Author.Name, ' ')], // first word in title
+				title: msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')],
 			}
-			a.msgs[strings.ToLower(user)] = &msgsEntry{&stream, msg.ID} // register stream decoded from msg
+			s.start, err = time.Parse("2006-01-02T15:04:05-07:00", msg.Embeds[0].Timestamp)
+			exitIfError(err)
+			if msg.Embeds[0].Thumbnail != nil {
+				s.thumbnail = msg.Embeds[0].Thumbnail.URL
+			}
+			// doesn't matter if wrong filter value; only needs to match icon
+			for i, URL := range iconURL {
+				if URL == msg.Embeds[0].Author.IconURL {
+					fmt.Printf("<%s-%d> ", s.user, i)
+					s.filter = i
+				}
+			}
+			a.msgs[strings.ToLower(s.user)] = &msgsEntry{&s, msg.ID} // register stream decoded from msg
 		}
 	}
 	log.Insta <- fmt.Sprintf("m | init [%d]", len(a.msgs))
@@ -85,7 +94,7 @@ func (a *msgAgent) run() {
 		for user := range new { // iterate thru new to pick edits + adds
 			streamNew := new[user]
 			_, isInOld := a.msgs[user]
-			if isInOld && streamNew.Title != a.msgs[user].stream.Title { // edit if title changed
+			if isInOld && streamNew.title != a.msgs[user].stream.title { // edit if title changed
 				commands = append(commands, command{'e', user, streamNew})
 			} else if !isInOld { // add
 				commands = append(commands, command{'a', user, streamNew})
@@ -103,6 +112,7 @@ func (a *msgAgent) run() {
 				a.msgs[cmd.user] = &msgsEntry{cmd.stream, msgID} // register msg
 			case 'e':
 				log.Insta <- "m | ~ " + cmd.user
+				cmd.stream.start = a.msgs[cmd.user].stream.start    // preserve original start time
 				a.msgEdit(a.msgs[cmd.user].msgID, cmd.stream, true) // edit existing msg to current info
 				a.msgs[cmd.user].stream = cmd.stream                // update stream object (pointer)
 			case 'r': // will swap its msg with oldest green msg (keeps greens grouped at bottom), then turns it red
@@ -165,32 +175,24 @@ func (a *msgAgent) msgEdit(msgID string, stream *stream, active bool) {
 func generateMsg(s *stream, live bool) *discordgo.MessageEmbed {
 	var colour int
 	var postText, thumbnail string
-	var URL string = "https://twitch.tv/" + s.UserName
+	var URL = "https://twitch.tv/" + s.user
 	if live {
 		colour = 0x00ff00 // green
 		postText = " is live"
-		if len(s.ThumbnailURL) >= 20 { // blunt safety check; need to replace end of url with numbers
-			thumbnail = s.ThumbnailURL[:len(s.ThumbnailURL)-20] + "440x248.jpg"
-		}
+		thumbnail = s.thumbnail
 	} else {
 		colour = 0xff0000 // red
 		postText = " was live"
 	}
-	iconURL := iconURLFail
-	if _, isReg := twicord[strings.ToLower(s.UserName)]; isReg {
-		iconURL = iconURLKnown
-	} else if filterStream(s) {
-		iconURL = iconURLPass
-	}
 	return &discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{
-			Name:    s.UserName + postText,
+			Name:    s.user + postText,
 			URL:     URL,
-			IconURL: iconURL,
+			IconURL: iconURL[s.filter],
 		},
-		Description: fmt.Sprintf("[%s](%s)", s.Title, URL),
+		Description: fmt.Sprintf("[%s](%s)", s.title, URL),
 		Color:       colour,
 		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: thumbnail},
-		Timestamp:   s.StartedAt.Format("2006-01-02T15:04:05Z"),
+		Timestamp:   s.start.Format("2006-01-02T15:04:05Z"),
 	}
 }
