@@ -44,7 +44,10 @@ func init() {
 	}
 
 	// core init
-	twitch, err = helix.NewClient(&helix.Options{ClientID: getEnvOrExit("TWITCH")})
+	twitch, err = helix.NewClient(&helix.Options{
+		ClientID:     getEnvOrExit("TWITCH_ID"),
+		ClientSecret: getEnvOrExit("TWITCH_SEC"),
+	})
 	exitIfError(err)
 	discord, err = discordgo.New("Bot " + getEnvOrExit("DISCORD"))
 	exitIfError(err)
