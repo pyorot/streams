@@ -12,6 +12,13 @@ import (
 
 // runs a single co-routine thread to process incoming info and synchronously send Discord commands
 
+type msgAgent struct {
+	inCh      chan (map[string]*stream)
+	msgs      map[string]*msgsEntry
+	channelID string
+	filtered  bool
+}
+
 type msgsEntry struct {
 	stream *stream // streams object (has info on stream)
 	msgID  string  // the ID of the Discord message we're managing to represent this stream
@@ -23,12 +30,8 @@ type command struct { // represents an action to be done on Discord
 	stream *stream // stream object
 }
 
-type msgAgent struct {
-	inCh      chan (map[string]*stream)
-	msgs      map[string]*msgsEntry
-	channelID string
-	filtered  bool
-}
+var msgAgents = make([]*msgAgent, 0)
+var iconURL = make([]string, 3)
 
 func newMsgAgent(channelID string, filtered bool) chan (*msgAgent) {
 	res := make(chan (*msgAgent))
@@ -46,9 +49,6 @@ func newMsgAgent(channelID string, filtered bool) chan (*msgAgent) {
 	return res
 }
 
-var msgAgents = make([]*msgAgent, 0)
-var iconURL = make([]string, 3)
-
 // blocking http req to reload msg state from the msg Discord channel on startup
 func (a *msgAgent) init() {
 	// load message history
@@ -57,23 +57,8 @@ func (a *msgAgent) init() {
 	// pick msgs that we'd been managing on last shutdown; decode + register them
 	for _, msg := range history {
 		if len(msg.Embeds) == 1 && msg.Embeds[0].Color == 0x00ff00 { // pick green msgs with 1 embed
-			s := stream{
-				user:  msg.Embeds[0].Author.Name[:strings.IndexByte(msg.Embeds[0].Author.Name, ' ')], // first word in title
-				title: msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')],
-			}
-			s.start, err = time.Parse("2006-01-02T15:04:05-07:00", msg.Embeds[0].Timestamp)
-			exitIfError(err)
-			if msg.Embeds[0].Thumbnail != nil {
-				s.thumbnail = msg.Embeds[0].Thumbnail.URL
-			}
-			// doesn't matter if wrong filter value; only needs to match icon
-			for i, URL := range iconURL {
-				if URL == msg.Embeds[0].Author.IconURL {
-					fmt.Printf("<%s-%d> ", s.user, i)
-					s.filter = i
-				}
-			}
-			a.msgs[strings.ToLower(s.user)] = &msgsEntry{&s, msg.ID} // register stream decoded from msg
+			s := newStreamFromMsg(msg)
+			a.msgs[strings.ToLower(s.user)] = &msgsEntry{s, msg.ID} // register stream decoded from msg
 		}
 	}
 	log.Insta <- fmt.Sprintf("m | init [%d]", len(a.msgs))
@@ -160,7 +145,7 @@ func (a *msgAgent) msgEdit(msgID string, stream *stream, active bool) {
 		_, err := discord.ChannelMessageEditComplex(&discordgo.MessageEdit{
 			Channel: a.channelID,
 			ID:      msgID,
-			Embed:   generateMsg(stream, active),
+			Embed:   newMsgFromStream(stream, active),
 		})
 		time.Sleep(time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
@@ -168,31 +153,5 @@ func (a *msgAgent) msgEdit(msgID string, stream *stream, active bool) {
 		} else {
 			return
 		}
-	}
-}
-
-// formats a stream into a message embed
-func generateMsg(s *stream, live bool) *discordgo.MessageEmbed {
-	var colour int
-	var postText, thumbnail string
-	var URL = "https://twitch.tv/" + s.user
-	if live {
-		colour = 0x00ff00 // green
-		postText = " is live"
-		thumbnail = s.thumbnail
-	} else {
-		colour = 0xff0000 // red
-		postText = " was live"
-	}
-	return &discordgo.MessageEmbed{
-		Author: &discordgo.MessageEmbedAuthor{
-			Name:    s.user + postText,
-			URL:     URL,
-			IconURL: iconURL[s.filter],
-		},
-		Description: fmt.Sprintf("[%s](%s)", s.title, URL),
-		Color:       colour,
-		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: thumbnail},
-		Timestamp:   s.start.Format("2006-01-02T15:04:05Z"),
 	}
 }
