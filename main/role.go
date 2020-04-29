@@ -16,6 +16,12 @@ var roles = make(map[string]string) // map of managed users (Twitch username →
 func roleInit() chan (bool) {
 	res := make(chan (bool), 1) // returned immediately; posted to when done
 	go func() {                 // anonymous function in new thread; posts to res when done
+		// create dict to identify per-discord-user if eir twitch stream is still up
+		reverseTwicord := make(map[string]string, len(twicord))
+		for k, v := range twicord {
+			reverseTwicord[v] = k
+		}
+		// find every discord member with the role and register using twicord
 		next := ""     // ID of next user, used to chain calls (endpoint has 1000-result limit)
 		userCount := 0 // will track total users detected
 		for {
@@ -29,8 +35,13 @@ func roleInit() chan (bool) {
 				for _, user := range users {
 					for _, role := range user.Roles {
 						if role == roleID { // if managed role is in user's roles
-							roles[user.User.ID] = user.User.ID // register user under Discord user ID *instead of Twitch username*
-							break                              // so that next incoming data comparison will def trigger a role-removal
+							twitchHandle, isInTwicord := reverseTwicord[user.User.ID]
+							if isInTwicord {
+								roles[twitchHandle] = user.User.ID
+							} else { // if unknown user, trigger role-removal by registering under non-existent handle
+								roles[user.User.ID] = user.User.ID
+							}
+							break
 						}
 					}
 				}

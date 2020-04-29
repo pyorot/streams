@@ -30,7 +30,7 @@ var twicord = make(map[string]string) // map: twitch user -> Discord user ID
 
 // runs on program start
 func init() {
-	var awaitTasks = make([]chan (bool), 0)
+	var awaitRoles = make([]chan (bool), 0)
 	var awaitMsgAgents = make([]chan (*msgAgent), 0)
 
 	// load env vars from .env file if present
@@ -56,15 +56,14 @@ func init() {
 	// filter init
 	if rawTags := getEnvOrEmpty("FILTER_TAGS"); rawTags != "" {
 		filterTags = strings.Split(rawTags, ",")
-		log.Insta <- fmt.Sprintf(". | Filter tags [%d]: %s", len(filterTags), filterTags)
+		log.Insta <- fmt.Sprintf(". | filter tags [%d]: %s", len(filterTags), filterTags)
 	}
 	if rawKeywords := getEnvOrEmpty("FILTER_KEYWORDS"); rawKeywords != "" {
 		filterKeywords = strings.Split(rawKeywords, ",")
-		log.Insta <- fmt.Sprintf(". | Filter keywords [%d]: %s", len(filterKeywords), filterKeywords)
+		log.Insta <- fmt.Sprintf(". | filter keywords [%d]: %s", len(filterKeywords), filterKeywords)
 	}
 	if twicordChannel := getEnvOrEmpty("TWICORD_CHANNEL"); twicordChannel != "" {
-		awaitTasks = append(awaitTasks, twicordInit(twicordChannel)) // run async task, which returns channel
-		log.Insta <- ". | Twicord channel: " + twicordChannel
+		twicordInit(twicordChannel)
 	}
 
 	// msg icons
@@ -96,12 +95,12 @@ func init() {
 	// role
 	if roleID = getEnvOrEmpty("ROLE"); roleID != "" {
 		roleServerID = getEnvOrExit("ROLE_SERVER")
-		awaitTasks = append(awaitTasks, roleInit()) // run async task, which returns channel
+		awaitRoles = append(awaitRoles, roleInit()) // run async task, which returns channel
 	}
 
 	// async parallel initialisation (see respective functions)
-	for _, awaitTask := range awaitTasks {
-		<-awaitTask // await tasks by doing blocking reads on them
+	for _, awaitRole := range awaitRoles {
+		<-awaitRole // await tasks by doing blocking reads on them
 	}
 	for _, awaitMsgAgent := range awaitMsgAgents {
 		a := <-awaitMsgAgent
@@ -141,28 +140,23 @@ func main() {
 	}
 }
 
-// non-blocking http req to read twicord data from a Discord chan
+// blocking http req to read twicord data from a Discord chan
 // format is a sequence of posts in the format (where dui = Discord userID, tun = Twitch username):
 // "twicord<comment>\n<dui1>\s<tun1>\n<dui2>\s<tun2>\n..."
-func twicordInit(channel string) chan (bool) {
-	res := make(chan (bool), 1) // returned immediately; posted to when done
-	go func() {                 // anonymous function in new thread; posts to res when done
-		history, err := discord.ChannelMessages(channel, 20, "", "", "") // get last 20 msgs
-		exitIfError(err)
-		for _, msg := range history {
-			if len(msg.Content) >= 8 && msg.Content[:7] == "twicord" { // pick msgs starting with "twicord"
-				scanner := bufio.NewScanner(strings.NewReader(msg.Content)) // line-by-line iterator
-				scanner.Scan()                                              // skip 1st line ("twicord<comment>\n")
-				for scanner.Scan() {
-					line := scanner.Text()
-					splitIndex := strings.IndexByte(line, ' ')                        // line is space-delimited
-					twicord[strings.ToLower(line[splitIndex+1:])] = line[:splitIndex] // dict is rhs → lhs
-				}
-				exitIfError(scanner.Err())
+func twicordInit(channel string) {
+	history, err := discord.ChannelMessages(channel, 20, "", "", "") // get last 20 msgs
+	exitIfError(err)
+	for _, msg := range history {
+		if len(msg.Content) >= 8 && msg.Content[:7] == "twicord" { // pick msgs starting with "twicord"
+			scanner := bufio.NewScanner(strings.NewReader(msg.Content)) // line-by-line iterator
+			scanner.Scan()                                              // skip 1st line ("twicord<comment>\n")
+			for scanner.Scan() {
+				line := scanner.Text()
+				splitIndex := strings.IndexByte(line, ' ')                        // line is space-delimited
+				twicord[strings.ToLower(line[splitIndex+1:])] = line[:splitIndex] // dict is rhs → lhs
 			}
+			exitIfError(scanner.Err())
 		}
-		log.Insta <- fmt.Sprintf(". | twicord loaded [%d]", len(twicord))
-		res <- true
-	}()
-	return res
+	}
+	log.Insta <- fmt.Sprintf(". | twicord loaded (from %s) [%d]", channel, len(twicord))
 }
