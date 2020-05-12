@@ -11,12 +11,15 @@ import (
 )
 
 type stream struct {
-	user      string    // Twitch handle
-	title     string    // stream title
-	start     time.Time // stream started at
-	thumbnail string    // stream thumbnail URL
-	filter    int       // 2 if user in Twicord; 1 if title tag/keyword match; 0 otherwise
+	user      string        // Twitch handle
+	title     string        // stream title
+	start     time.Time     // stream started at
+	length    time.Duration // total stream length (including gaps)
+	thumbnail string        // stream thumbnail URL
+	filter    int           // 2 if user in Twicord; 1 if title tag/keyword match; 0 otherwise
 }
+
+var embedColours = [3]int{0x00ff00, 0xff8000, 0xff0000}
 
 // called only in fetch() to generate streams from incoming new data
 func newStreamFromTwitch(r *helix.Stream) *stream {
@@ -29,6 +32,7 @@ func newStreamFromTwitch(r *helix.Stream) *stream {
 		title:     r.Title,
 		start:     r.StartedAt,
 		thumbnail: r.ThumbnailURL[:lastHyphen+1] + "440x248.jpg",
+		// length is not needed
 	}
 	if _, isReg := twicord[strings.ToLower(s.user)]; isReg {
 		s.filter = 2
@@ -45,6 +49,10 @@ func newStreamFromMsg(msg *discordgo.Message) *stream {
 	s.title = msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')]
 	s.start, err = time.Parse("2006-01-02T15:04:05-07:00", msg.Embeds[0].Timestamp)
 	exitIfError(err)
+	if msg.Embeds[0].Footer != nil && msg.Embeds[0].Footer.Text != "" {
+		s.length, err = time.ParseDuration(msg.Embeds[0].Footer.Text)
+		exitIfError(err)
+	}
 	if msg.Embeds[0].Thumbnail != nil {
 		s.thumbnail = msg.Embeds[0].Thumbnail.URL
 	}
@@ -59,17 +67,17 @@ func newStreamFromMsg(msg *discordgo.Message) *stream {
 
 // formats a stream into a message embed
 // called only in msgEdit to generate messages
-func newMsgFromStream(s *stream, live bool) *discordgo.MessageEmbed {
-	var colour int
-	var postText, thumbnail string
+func newMsgFromStream(s *stream, state int) *discordgo.MessageEmbed {
 	var URL = "https://twitch.tv/" + s.user
-	if live {
-		colour = 0x00ff00 // green
+	var colour = embedColours[state]
+	var postText, thumbnail string
+	var length string
+	if state == 0 {
 		postText = " is live"
 		thumbnail = s.thumbnail
 	} else {
-		colour = 0xff0000 // red
 		postText = " was live"
+		length = strings.TrimSuffix(s.length.Truncate(time.Minute).String(), "0s")
 	}
 	return &discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{
@@ -81,6 +89,7 @@ func newMsgFromStream(s *stream, live bool) *discordgo.MessageEmbed {
 		Color:       colour,
 		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: thumbnail},
 		Timestamp:   s.start.Format("2006-01-02T15:04:05Z"),
+		Footer:      &discordgo.MessageEmbedFooter{Text: length},
 	}
 }
 
