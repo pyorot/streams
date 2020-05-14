@@ -9,7 +9,6 @@ import (
 
 var roleID string
 var roleServerID string
-
 var roles = make(map[string]string) // map of managed users (Twitch username → Discord userID)
 
 // non-blocking http req to load all users, then flag them for role removal (so we start afresh)
@@ -61,18 +60,16 @@ func role(new map[string]*stream) {
 	for user := range roles {                 // iterate thru old to pick removals
 		_, isInNew := new[user]
 		if !isInNew {
-			removesCh[user] = roleRemove(roles[user]) // async call; registers await chan
-			time.Sleep(1 * time.Second)               // avoid 5 posts / 5s rate limit
 			log.Insta <- "r | - " + user
+			removesCh[user] = roleRemove(roles[user]) // async call; registers await chan
 		}
 	}
 	for user := range new { // iterate thru new to pick additions
 		_, isInOld := roles[user]
 		userID, isReg := twicord[user] // look-up Twitch username in twicord (will ignore user if not found)
 		if !isInOld && isReg {
-			addsCh[user] = roleAdd(userID) // async call; registers await chan
-			time.Sleep(1 * time.Second)    // avoid 5 posts / 5s rate limit
 			log.Insta <- "r | + " + user
+			addsCh[user] = roleAdd(userID) // async call; registers await chan
 		}
 	}
 
@@ -96,6 +93,7 @@ func roleAdd(userID string) chan (bool) {
 	res := make(chan (bool), 1)
 	go func() {
 		err := discord.GuildMemberRoleAdd(roleServerID, userID, roleID)
+		time.Sleep(1 * time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
 			log.Insta <- fmt.Sprintf("x | r+ | %s : %s", userID, err)
 		}
@@ -109,6 +107,7 @@ func roleRemove(userID string) chan (bool) {
 	res := make(chan (bool), 1)
 	go func() {
 		err := discord.GuildMemberRoleRemove(roleServerID, userID, roleID)
+		time.Sleep(1 * time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
 			log.Insta <- fmt.Sprintf("x | r- | %s : %s", userID, err)
 		}

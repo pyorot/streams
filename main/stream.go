@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Pyorot/streams/log"
 	"github.com/bwmarrin/discordgo"
 	"github.com/nicklaw5/helix"
 )
@@ -24,9 +23,6 @@ var embedColours = [3]int{0x00ff00, 0xff8000, 0xff0000}
 // called only in fetch() to generate streams from incoming new data
 func newStreamFromTwitch(r *helix.Stream) *stream {
 	lastHyphen := strings.LastIndexByte(r.ThumbnailURL, '-')
-	if lastHyphen == -1 {
-		log.Insta <- "x | invalid ThumbnailURL: " + r.ThumbnailURL
-	}
 	s := &stream{
 		user:      r.UserName,
 		title:     r.Title,
@@ -107,7 +103,6 @@ func filterStream(r *helix.Stream) bool {
 	title := strings.ToLower(r.Title)
 	for _, keyword := range filterKeywords {
 		if strings.Contains(title, keyword) {
-			fmt.Printf("!{%s|%s}\n", title, keyword)
 			return true
 		}
 	}

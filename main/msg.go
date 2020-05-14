@@ -13,6 +13,7 @@ import (
 // runs a single co-routine thread to process incoming info and synchronously send Discord commands
 
 type msgAgent struct {
+	ID              int
 	inCh            chan (map[string]*stream)
 	streamsLive     streamEntries
 	streamsExpiring streamEntries
@@ -32,6 +33,7 @@ type command struct { // represents an action to be done on Discord
 	stream *stream // stream object
 }
 
+var msgAgentCounter = 0
 var msgAgents = make([]*msgAgent, 0)
 var iconURL = make([]string, 3)
 
@@ -39,12 +41,14 @@ func newMsgAgent(channelID string, filtered bool) chan (*msgAgent) {
 	res := make(chan (*msgAgent))
 	go func() {
 		a := &msgAgent{
+			ID:              msgAgentCounter,
 			inCh:            make(chan map[string]*stream),
 			streamsLive:     make(map[string]*streamEntry, 40),
 			streamsExpiring: make(map[string]*streamEntry, 20),
 			channelID:       channelID,
 			filtered:        filtered,
 		}
+		msgAgentCounter++
 		a.init()
 		go a.run()
 		res <- a
@@ -70,7 +74,7 @@ func (a *msgAgent) init() {
 			}
 		}
 	}
-	log.Insta <- fmt.Sprintf("m | init [%d | %d]", len(a.streamsLive), len(a.streamsExpiring))
+	log.Insta <- fmt.Sprintf("m%d| init [%d | %d]", a.ID, len(a.streamsLive), len(a.streamsExpiring))
 }
 
 // the message-managing co-routine
@@ -103,14 +107,14 @@ func (a *msgAgent) run() {
 			case 'a':
 				_, exists := a.streamsExpiring[user]
 				if !exists { // will create new msg, then edit in info (to avoid losing a duplicate if it fails)
-					log.Insta <- "m | + " + user
+					log.Insta <- fmt.Sprintf("m%d| + %s", a.ID, user)
 					msgID := a.msgAdd()                                     // create new blank (yellow) msg
 					a.streamsLive[user] = &streamEntry{streamLatest, msgID} // register msg
 				} else { // will swap the old msg with newest orange msg (keeps greens grouped at bottom), then turns it green
 					msgID := a.streamsExpiring[user].msgID
-					maxUser, maxID := a.streamsExpiring.getExtremalEntry(+1) // find ID of newest orange msg
-					log.Insta <- "m | * " + user + " ↔ " + maxUser           //
-					if maxID != msgID {                                      // if a swap even needs to be done
+					maxUser, maxID := a.streamsExpiring.getExtremalEntry(+1)        // find ID of newest orange msg
+					log.Insta <- fmt.Sprintf("m%d| * %s ↔ %s", a.ID, user, maxUser) //
+					if maxID != msgID {                                             // if a swap even needs to be done
 						a.streamsExpiring[user].msgID, a.streamsExpiring[maxUser].msgID = maxID, msgID // swap in internal state
 						a.msgEdit(a.streamsExpiring[maxUser], 1)                                       // edit newer msg (now of an open stream)
 					}
@@ -121,15 +125,15 @@ func (a *msgAgent) run() {
 				a.msgEdit(a.streamsLive[user], 0) // update msg (turns green)
 
 			case 'e':
-				log.Insta <- "m | ~ " + user
+				log.Insta <- fmt.Sprintf("m%d| ~ %s", a.ID, user)
 				a.streamsLive[user].stream.title = streamLatest.title // take latest title
 				a.msgEdit(a.streamsLive[user], 0)                     // update msg
 
 			case 'r': // will swap its msg with oldest green msg (keeps greens grouped at bottom), then turns it orange
 				msgID := a.streamsLive[user].msgID
-				minUser, minID := a.streamsLive.getExtremalEntry(-1) // find ID of oldest green msg
-				log.Insta <- "m | - " + user + " ↔ " + minUser       //
-				if minID != msgID {                                  // if a swap even needs to be done
+				minUser, minID := a.streamsLive.getExtremalEntry(-1)            // find ID of oldest green msg
+				log.Insta <- fmt.Sprintf("m%d| * %s ↔ %s", a.ID, user, minUser) //
+				if minID != msgID {                                             // if a swap even needs to be done
 					a.streamsLive[user].msgID, a.streamsLive[minUser].msgID = minID, msgID // swap in internal state
 					a.msgEdit(a.streamsLive[minUser], 0)                                   // edit newer msg (now of an open stream)
 				}
@@ -143,13 +147,13 @@ func (a *msgAgent) run() {
 		// manage expiries
 		for user, se := range a.streamsExpiring {
 			if s := se.stream; time.Since(s.start.Add(s.length)).Minutes() > 15 {
-				log.Insta <- "m | / " + user
+				log.Insta <- fmt.Sprintf("m%d| / %s", a.ID, user)
 				delete(a.streamsExpiring, user)
 				a.msgEdit(se, 2)
 			}
 		}
 
-		log.Bkgd <- fmt.Sprintf("m | ok [%d]", len(a.streamsLive))
+		log.Bkgd <- fmt.Sprintf("m%d| ok [%d]", a.ID, len(a.streamsLive))
 	}
 }
 
@@ -176,7 +180,7 @@ func (a *msgAgent) msgAdd() (msgID string) {
 		)
 		time.Sleep(time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
-			log.Insta <- fmt.Sprintf("x | m+: %s", err)
+			log.Insta <- fmt.Sprintf("x | m%d+: %s", a.ID, err)
 		} else {
 			return msgOut.ID
 		}
@@ -193,7 +197,10 @@ func (a *msgAgent) msgEdit(se *streamEntry, state int) {
 		})
 		time.Sleep(time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
-			log.Insta <- fmt.Sprintf("x | m~: %s", err)
+			log.Insta <- fmt.Sprintf("x | m%d~: %s", a.ID, err)
+			if err.Error()[:8] == "HTTP 404" {
+				panic(err)
+			}
 		} else {
 			return
 		}

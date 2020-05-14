@@ -108,7 +108,7 @@ func init() {
 	for _, awaitMsgAgent := range awaitMsgAgents {
 		a := <-awaitMsgAgent
 		msgAgents = append(msgAgents, a)
-		log.Insta <- fmt.Sprintf("m | started %s-%t", a.channelID, a.filtered)
+		log.Insta <- fmt.Sprintf("m%d| started %s-%t", a.ID, a.channelID, a.filtered)
 	}
 	log.Insta <- ". | initialised\n"
 }
@@ -154,7 +154,7 @@ func twicordInit(channel string) {
 			scanner := bufio.NewScanner(strings.NewReader(msg.Content)) // line-by-line iterator
 			scanner.Scan()                                              // skip 1st line ("twicord<comment>\n")
 			for scanner.Scan() {
-				line := scanner.Text()
+				line := strings.TrimSpace(scanner.Text())
 				splitIndex := strings.IndexByte(line, ' ')                        // line is space-delimited
 				twicord[strings.ToLower(line[splitIndex+1:])] = line[:splitIndex] // dict is rhs → lhs
 			}
