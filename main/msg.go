@@ -10,15 +10,15 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// runs a single co-routine thread to process incoming info and synchronously send Discord commands
+// runs a co-routine thread per agent a, a.run(), to process incoming info and synchronously send Discord commands
 
 type msgAgent struct {
-	ID              int
-	inCh            chan (map[string]*stream)
-	streamsLive     streamEntries
-	streamsExpiring streamEntries
-	channelID       string
-	filtered        bool
+	ID              int                       // ID to show in logging
+	channelID       string                    // the channel to post to
+	filtered        bool                      // does it receive (hence post) all users or only filtered/known ones?
+	inCh            chan (map[string]*stream) // channel whence read in new data
+	streamsLive     streamEntries             // map user → stream-state for live streams
+	streamsExpiring streamEntries             // map user → stream-state for recently-ended streams
 }
 
 type streamEntries map[string]*streamEntry
@@ -33,26 +33,28 @@ type command struct { // represents an action to be done on Discord
 	stream *stream // stream object
 }
 
-var msgAgentCounter = 0
-var msgAgents = make([]*msgAgent, 0)
-var iconURL = make([]string, 3)
+var msgAgentCounter = 0              // used to generate unique IDs for agents
+var msgAgents = make([]*msgAgent, 0) // index of all agents
+var iconURL = make([]string, 3)      // static list of icon URLs for embeds, populated from env vars
 
+// asynchronous constructor for msgAgent; returns a channel that eventually gets a ptr to a new agent
 func newMsgAgent(channelID string, filtered bool) chan (*msgAgent) {
 	res := make(chan (*msgAgent))
-	go func() {
+	id := msgAgentCounter // take copy of counter to prevent async functions from contending over it
+	go func() {           // async call to anon function
 		a := &msgAgent{
-			ID:              msgAgentCounter,
+			ID:              id,
 			inCh:            make(chan map[string]*stream),
 			streamsLive:     make(map[string]*streamEntry, 40),
 			streamsExpiring: make(map[string]*streamEntry, 20),
 			channelID:       channelID,
 			filtered:        filtered,
 		}
-		msgAgentCounter++
-		a.init()
-		go a.run()
+		a.init()   // first init
+		go a.run() // then spawn worker thread and return
 		res <- a
 	}()
+	msgAgentCounter++
 	return res
 }
 
@@ -61,16 +63,16 @@ func (a *msgAgent) init() {
 	// load message history
 	history, err := discord.ChannelMessages(a.channelID, 50, "", "", "") // 50 msgs
 	exitIfError(err)
-	// pick msgs that we'd been managing on last shutdown; decode + register them
+	// pick msgs that we'd been managing on last shutdown; register stream decoded from msg
 	for _, msg := range history {
 		if len(msg.Embeds) == 1 { // pick msgs with 1 embed
-			switch msg.Embeds[0].Color { // pick green and orange messages
+			switch msg.Embeds[0].Color { // pick messages corresponding to open and recently-closed streams
 			case embedColours[0]:
 				s := newStreamFromMsg(msg)
-				a.streamsLive[strings.ToLower(s.user)] = &streamEntry{s, msg.ID} // register stream decoded from msg
+				a.streamsLive[strings.ToLower(s.user)] = &streamEntry{s, msg.ID}
 			case embedColours[1]:
 				s := newStreamFromMsg(msg)
-				a.streamsExpiring[strings.ToLower(s.user)] = &streamEntry{s, msg.ID} // register stream decoded from msg
+				a.streamsExpiring[strings.ToLower(s.user)] = &streamEntry{s, msg.ID}
 			}
 		}
 	}
@@ -91,7 +93,7 @@ func (a *msgAgent) run() {
 		}
 		for user := range streamsNew { // iterate thru new to pick edits + adds
 			_, isInOld := a.streamsLive[user]
-			if isInOld && streamsNew[user].title != a.streamsLive[user].stream.title { // edit if title changed
+			if isInOld && streamsNew[user].title != a.streamsLive[user].stream.title { // edit if title changes
 				commands = append(commands, command{'e', user, streamsNew[user]})
 			} else if !isInOld { // add
 				commands = append(commands, command{'a', user, streamsNew[user]})
@@ -99,14 +101,14 @@ func (a *msgAgent) run() {
 		}
 
 		// process command queue (all commands are synchronous)
-		// the msgs in Discord are colour-coded: yellow = being created; green = active stream; red = ended stream
+		// msg embed colours: green = stream up; orange = stream down <15mins ago; red = stream down for good; yellow = msg while being created
 		for _, cmd := range commands {
 			user, streamLatest := cmd.user, cmd.stream
 			switch cmd.action {
 
 			case 'a':
-				_, exists := a.streamsExpiring[user]
-				if !exists { // will create new msg, then edit in info (to avoid losing a duplicate if it fails)
+				_, exists := a.streamsExpiring[user] // is the user in expiring i.e. did eir stream go down <15mins ago
+				if !exists {                         // will create new msg, then edit in info (to avoid losing a duplicate if it fails)
 					log.Insta <- fmt.Sprintf("m%d| + %s", a.ID, user)
 					msgID := a.msgAdd()                                     // create new blank (yellow) msg
 					a.streamsLive[user] = &streamEntry{streamLatest, msgID} // register msg
@@ -116,35 +118,35 @@ func (a *msgAgent) run() {
 					log.Insta <- fmt.Sprintf("m%d| * %s ↔ %s", a.ID, user, maxUser) //
 					if maxID != msgID {                                             // if a swap even needs to be done
 						a.streamsExpiring[user].msgID, a.streamsExpiring[maxUser].msgID = maxID, msgID // swap in internal state
-						a.msgEdit(a.streamsExpiring[maxUser], 1)                                       // edit newer msg (now of an open stream)
+						a.msgEdit(a.streamsExpiring[maxUser], 1)                                       // edit older msg (to the closed stream)
 					}
 					a.streamsLive[user] = a.streamsExpiring[user]         // move msg to live
 					delete(a.streamsExpiring, user)                       //
-					a.streamsLive[user].stream.title = streamLatest.title // take latest title
+					a.streamsLive[user].stream.title = streamLatest.title // update stream title
 				}
-				a.msgEdit(a.streamsLive[user], 0) // update msg (turns green)
+				a.msgEdit(a.streamsLive[user], 0) // update (newer) msg with latest info (turns green)
 
 			case 'e':
 				log.Insta <- fmt.Sprintf("m%d| ~ %s", a.ID, user)
-				a.streamsLive[user].stream.title = streamLatest.title // take latest title
+				a.streamsLive[user].stream.title = streamLatest.title // update stream title
 				a.msgEdit(a.streamsLive[user], 0)                     // update msg
 
 			case 'r': // will swap its msg with oldest green msg (keeps greens grouped at bottom), then turns it orange
 				msgID := a.streamsLive[user].msgID
 				minUser, minID := a.streamsLive.getExtremalEntry(-1)            // find ID of oldest green msg
-				log.Insta <- fmt.Sprintf("m%d| * %s ↔ %s", a.ID, user, minUser) //
+				log.Insta <- fmt.Sprintf("m%d| - %s ↔ %s", a.ID, user, minUser) //
 				if minID != msgID {                                             // if a swap even needs to be done
 					a.streamsLive[user].msgID, a.streamsLive[minUser].msgID = minID, msgID // swap in internal state
-					a.msgEdit(a.streamsLive[minUser], 0)                                   // edit newer msg (now of an open stream)
+					a.msgEdit(a.streamsLive[minUser], 0)                                   // edit newer msg (to the open stream)
 				}
-				a.streamsExpiring[user] = a.streamsLive[user]                                            // move msg to expiring                                    // move msg to expiring
+				a.streamsExpiring[user] = a.streamsLive[user]                                            // move msg to expiring
 				delete(a.streamsLive, user)                                                              //
 				a.streamsExpiring[user].stream.length = time.Since(a.streamsExpiring[user].stream.start) // update stream length
 				a.msgEdit(a.streamsExpiring[user], 1)                                                    // edit older msg (now of a closed stream)
 			}
 		}
 
-		// manage expiries
+		// manage expiries (clear streams that expired >15 mins ago)
 		for user, se := range a.streamsExpiring {
 			if s := se.stream; time.Since(s.start.Add(s.length)).Minutes() > 15 {
 				log.Insta <- fmt.Sprintf("m%d| / %s", a.ID, user)
@@ -157,9 +159,10 @@ func (a *msgAgent) run() {
 	}
 }
 
+// finds the oldest/newest msg in a (non-empty) m msg map
 func (m streamEntries) getExtremalEntry(sign int) (string, string) {
 	var extUser, extID string
-	for user := range m { // get a member (bound)
+	for user := range m { // get a member
 		extUser, extID = user, m[user].msgID
 		break
 	}
@@ -198,8 +201,8 @@ func (a *msgAgent) msgEdit(se *streamEntry, state int) {
 		time.Sleep(time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
 			log.Insta <- fmt.Sprintf("x | m%d~: %s", a.ID, err)
-			if err.Error()[:8] == "HTTP 404" {
-				panic(err)
+			if err.Error()[:8] == "HTTP 404" { // special deadlock avoidance in case a discord message ID gets lost (yes, that happened)
+				panic(err) // (run the bot in a looping shell script or auto-managed platform)
 			}
 		} else {
 			return

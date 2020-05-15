@@ -7,37 +7,39 @@ import (
 	log "github.com/Pyorot/streams/log"
 )
 
-var roleID string
-var roleServerID string
-var roles = make(map[string]string) // map of managed users (Twitch username → Discord userID)
+// provides a task, role(), to call to process updates to roles
 
-// non-blocking http req to load all users, then flag them for role removal (so we start afresh)
+var roleID string                   // Discord ID of the role
+var roleServerID string             // Discord ID of the server the role belongs to
+var roles = make(map[string]string) // map of managed users (Twitch username → Discord userID). inclusion = has role
+
+// non-blocking http req to load all users and register to state via inverse look-up
 func roleInit() chan (bool) {
 	res := make(chan (bool), 1) // returned immediately; posted to when done
 	go func() {                 // anonymous function in new thread; posts to res when done
-		// create dict to identify per-discord-user if eir twitch stream is still up
-		reverseTwicord := make(map[string]string, len(twicord))
+		// create inverse dict to identify for each discord user if eir stream is still up
+		inverseTwicord := make(map[string]string, len(twicord))
 		for k, v := range twicord {
-			reverseTwicord[v] = k
+			inverseTwicord[v] = k
 		}
 		// find every discord member with the role and register using twicord
-		next := ""     // ID of next user, used to chain calls (endpoint has 1000-result limit)
+		next := ""     // ID of next user, used to chain sync calls (endpoint has 1000-result limit)
 		userCount := 0 // will track total users detected
 		for {
 			users, err := discord.GuildMembers(roleServerID, next, 1000)
 			exitIfError(err)
 			if len(users) == 0 { // found all users
 				break
-			} else { // process data and set "next" to see if there's more
+			} else { // process data and set "next" ahead of next call to see if there's more
 				next = users[len(users)-1].User.ID
 				userCount += len(users)
 				for _, user := range users {
 					for _, role := range user.Roles {
 						if role == roleID { // if managed role is in user's roles
-							twitchHandle, isInTwicord := reverseTwicord[user.User.ID]
+							twitchHandle, isInTwicord := inverseTwicord[user.User.ID]
 							if isInTwicord {
 								roles[twitchHandle] = user.User.ID
-							} else { // if unknown user, trigger role-removal by registering under non-existent handle
+							} else { // if unknown user, trigger role-removal by registering under unique non-existent handle
 								roles[user.User.ID] = user.User.ID
 							}
 							break
@@ -54,7 +56,7 @@ func roleInit() chan (bool) {
 
 // non-blocking parallelised call to all role additions/removals, handling return values
 func role(new map[string]*stream) {
-	// perform external actions
+	// call external actions
 	addsCh := make(map[string]chan (bool))    // list of chans to await additions
 	removesCh := make(map[string]chan (bool)) // list of chans to await removals
 	for user := range roles {                 // iterate thru old to pick removals
@@ -66,7 +68,7 @@ func role(new map[string]*stream) {
 	}
 	for user := range new { // iterate thru new to pick additions
 		_, isInOld := roles[user]
-		userID, isReg := twicord[user] // look-up Twitch username in twicord (will ignore user if not found)
+		userID, isReg := twicord[user] // look-up Twitch username in twicord (skip user if not found)
 		if !isInOld && isReg {
 			log.Insta <- "r | + " + user
 			addsCh[user] = roleAdd(userID) // async call; registers await chan
@@ -88,7 +90,7 @@ func role(new map[string]*stream) {
 	log.Bkgd <- fmt.Sprintf("r | ok [%d]", len(roles))
 }
 
-// non-blocking http req to add role to user; returns success
+// non-blocking http req to add role to user; returns channel to await success/failure
 func roleAdd(userID string) chan (bool) {
 	res := make(chan (bool), 1)
 	go func() {
@@ -102,7 +104,7 @@ func roleAdd(userID string) chan (bool) {
 	return res
 }
 
-// non-blocking http req to remove role from user; returns success
+// non-blocking http req to remove role from user; returns channel to await success/failure
 func roleRemove(userID string) chan (bool) {
 	res := make(chan (bool), 1)
 	go func() {

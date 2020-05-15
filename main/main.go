@@ -14,26 +14,25 @@ import (
 	"github.com/nicklaw5/helix"
 )
 
-// main.go: main program loop + Twitch data fetching
-// msg.go:  managing a streams channel (posting to Discord)
-// role.go: managing a streams role (posting to Discord)
+// main.go:   main program init and loop + twicord init
+// fetch.go:  twitch auth + streams data poll
+// msg.go:    managing a streams channel (posting to Discord)
+// role.go:   managing a streams role (posting to Discord)
+// stream.go: stream struct and conversion/filter methods
+// utils.go:  macros for if, errors, env vars
 
-var err error                  // placeholder error
-var twitch *helix.Client       // Twitch client
-var discord *discordgo.Session // Discord client
-
+var err error                         // placeholder error
+var twitch *helix.Client              // Twitch client
+var discord *discordgo.Session        // Discord client
 var filterRequired bool               // will generate filtered map of incoming streams
 var filterTags []string               // Twitch tags to look for
-var filterKeywords []string           // Title keywords to look for
+var filterKeywords []string           // title keywords to look for
 var twicord = make(map[string]string) // map: twitch user -> Discord user ID
-// twicord is used to find Discord users to assign roles to + maybe to filter the msg channel
+// twicord is used to look up Discord users to assign roles to + maybe to filter a msg channel
 
 // runs on program start
 func init() {
-	var awaitRoles = make([]chan (bool), 0)
-	var awaitMsgAgents = make([]chan (*msgAgent), 0)
-
-	// load env vars from .env file if present
+	// load env vars from .env file if present (else expect they're already loaded)
 	err := godotenv.Load()
 	if err == nil {
 		log.Insta <- ". | Env vars loaded from .env"
@@ -66,10 +65,10 @@ func init() {
 		log.Insta <- fmt.Sprintf(". | filter keywords [%d]: %s", len(filterKeywords), filterKeywords)
 	}
 	if twicordChannel := getEnvOrEmpty("TWICORD_CHANNEL"); twicordChannel != "" {
-		twicordInit(twicordChannel)
+		twicordInit(twicordChannel) // do this sync cos role init depends on it
 	}
 
-	// msg icons
+	// msg icons init (2,1,0 = known on twicord, not known but passed filter, other rsp.)
 	if url := getEnvOrEmpty("MSG_ICON"); url != "" {
 		iconURL[0], iconURL[1], iconURL[2] = url, url, url
 		if url2 := getEnvOrEmpty("MSG_ICON_PASS"); url2 != "" {
@@ -80,35 +79,37 @@ func init() {
 		}
 	}
 
-	// msg agents (requires msg icons)
+	// msg agents init (requires msg icons)
+	var awaitMsgAgents = make([]chan (*msgAgent), 0) // a list to collect async tasks, to be awaited later
 	for _, channel := range strings.Split(getEnvOrEmpty("MSG_CHANNELS"), ",") {
-		if len(channel) >= 1 {
+		if channel != "" {
 			switch channel[0] {
-			case '+':
+			case '+': // a filtered channel
 				filterRequired = true
-				fallthrough
-			case '*':
-				awaitMsgAgents = append(awaitMsgAgents, newMsgAgent(channel[1:], channel[0] == '+'))
+				fallthrough // run next case as well
+			case '*': // an unfiltered channel
+				awaitMsgAgents = append(awaitMsgAgents, newMsgAgent(channel[1:], channel[0] == '+')) // run async task (returns channel)
 			default:
 				panic(fmt.Sprintf("First char of channel ID %s must be * or +", channel))
 			}
 		}
 	}
 
-	// role
-	if roleID = getEnvOrEmpty("ROLE"); roleID != "" {
-		roleServerID = getEnvOrExit("ROLE_SERVER")
-		awaitRoles = append(awaitRoles, roleInit()) // run async task, which returns channel
+	// role init (requires twicord)
+	var awaitRoles = make([]chan (bool), 0)           // a list to collect async tasks, to be awaited later. there's only 1 but i might add more later
+	if roleID = getEnvOrEmpty("ROLE"); roleID != "" { // if ROLE is missing, user probs doesn't want a role
+		roleServerID = getEnvOrExit("ROLE_SERVER")  // if ROLE is there but ROLE_SERVER missing, user probs forgot the server
+		awaitRoles = append(awaitRoles, roleInit()) // run async task (returns channel)
 	}
 
-	// async parallel initialisation (see respective functions)
-	for _, awaitRole := range awaitRoles {
-		<-awaitRole // await tasks by doing blocking reads on them
-	}
+	// await parallel init tasks (by doing blocking reads on their returned channels; see rsp. functions)
 	for _, awaitMsgAgent := range awaitMsgAgents {
-		a := <-awaitMsgAgent
+		a := <-awaitMsgAgent // the task will bear an agent a
 		msgAgents = append(msgAgents, a)
 		log.Insta <- fmt.Sprintf("m%d| started %s-%t", a.ID, a.channelID, a.filtered)
+	}
+	for _, awaitRole := range awaitRoles {
+		<-awaitRole
 	}
 	log.Insta <- ". | initialised\n"
 }
@@ -119,9 +120,9 @@ func main() {
 		new, err := fetch() // synchronous Twitch http call
 		if err == nil {
 			log.Bkgd <- fmt.Sprintf("< | %s", time.Now().Format("15:04:05"))
-			var newFiltered map[string]*stream
+			var newFiltered map[string]*stream // declare a map to subset "new" on known/filtered users
 			if filterRequired {
-				newFiltered = make(map[string]*stream)
+				newFiltered = make(map[string]*stream) // init said map cos we need it
 				for user, stream := range new {
 					if stream.filter >= 1 {
 						newFiltered[user] = stream
@@ -129,14 +130,14 @@ func main() {
 				}
 			}
 			for _, a := range msgAgents {
-				if a.filtered {
+				if a.filtered { // the agents run msg(), a permanent worker coroutine thread that awaits on these channels
 					a.inCh <- newFiltered
 				} else {
-					a.inCh <- new // post to msgCh, read by msg(), a permanent worker coroutine thread
+					a.inCh <- new
 				}
 			}
 			if roleID != "" {
-				go role(new) // async call to role(), runs as a task (no return)
+				go role(new) // async call to role(), runs as a one-off task (no return)
 			}
 			time.Sleep(60 * time.Second)
 		}
@@ -144,10 +145,10 @@ func main() {
 }
 
 // blocking http req to read twicord data from a Discord chan
-// format is a sequence of posts in the format (where dui = Discord userID, tun = Twitch username):
+// that contains a bunch of posts in the format (where dui = Discord userID, tun = Twitch username):
 // "twicord<comment>\n<dui1>\s<tun1>\n<dui2>\s<tun2>\n..."
 func twicordInit(channel string) {
-	history, err := discord.ChannelMessages(channel, 20, "", "", "") // get last 20 msgs
+	history, err := discord.ChannelMessages(channel, 50, "", "", "") // get last 50 msgs (max poss is 50)
 	exitIfError(err)
 	for _, msg := range history {
 		if len(msg.Content) >= 8 && msg.Content[:7] == "twicord" { // pick msgs starting with "twicord"
@@ -155,7 +156,7 @@ func twicordInit(channel string) {
 			scanner.Scan()                                              // skip 1st line ("twicord<comment>\n")
 			for scanner.Scan() {
 				line := strings.TrimSpace(scanner.Text())
-				splitIndex := strings.IndexByte(line, ' ')                        // line is space-delimited
+				splitIndex := strings.IndexByte(line, ' ')
 				twicord[strings.ToLower(line[splitIndex+1:])] = line[:splitIndex] // dict is rhs → lhs
 			}
 			exitIfError(scanner.Err())

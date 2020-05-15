@@ -5,15 +5,15 @@ import (
 	"os"
 )
 
-// ternary if macro
-func ifThenElse(cond bool, valueIfTrue interface{}, valueIfFalse interface{}) interface{} {
+// ternary if macro (generics when)
+func ifThenElse(cond bool, valueIfTrue string, valueIfFalse string) string {
 	if cond {
 		return valueIfTrue
 	}
 	return valueIfFalse
 }
 
-// fatal error macro, used in initialisations
+// fatal error macro, used in initialisations or assertions
 func exitIfError(err error) {
 	if err != nil {
 		panic(err)
