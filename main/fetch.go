@@ -10,11 +10,11 @@ import (
 )
 
 var getStreamsParams helix.StreamsParams // the const argument for getStreams calls, initialised in main.go:init()
-var authExpiry time.Time                 // timepoint after which we must regenerate an auth token
+var authed bool                          // is current auth token believed to be valid?
 
 // blocking http request to Twitch getStreams
 func fetch() (map[string]*stream, error) {
-	auth()                                           // check if auth token is still valid
+	auth()                                           // renew auth token if required
 	dict := make(map[string]*stream)                 // the return dict (twitch username → stream object)
 	res, err := twitch.GetStreams(&getStreamsParams) // make api call
 	if err == nil && res.StatusCode != 200 {         // reinterpret HTTP error as actual error
@@ -26,19 +26,23 @@ func fetch() (map[string]*stream, error) {
 			dict[strings.ToLower(list[i].UserName)] = newStreamFromTwitch(&list[i])
 		}
 	} else {
+		authed = !(res != nil && res.StatusCode == 401) // trigger re-auth next run iff last error was 401 (deref ptr first!)
 		log.Insta <- fmt.Sprintf("x | < : %s", err)
 	}
 	return dict, err
 }
 
-// blocking http request (if required) to Twitch auth to get (expiring) token
+// blocking http request to renew Twitch auth token if required, retry until success
 func auth() {
-	if time.Now().After(authExpiry) {
-		authExpiry = time.Now()                // take time before request to guarantee safe expiry window
+	for !authed {
 		res, err := twitch.GetAppAccessToken() // make api call
-		exitIfError(err)
-		twitch.SetAppAccessToken(res.Data.AccessToken)
-		authExpiry = authExpiry.Add(time.Duration(res.Data.ExpiresIn) * time.Second)
-		log.Insta <- fmt.Sprintf("< | token generated: %s (for %ds)", res.Data.AccessToken, res.Data.ExpiresIn)
+		if err == nil {
+			twitch.SetAppAccessToken(res.Data.AccessToken)
+			authed = true
+			log.Insta <- fmt.Sprintf("<a| %s", res.Data.AccessToken)
+		} else {
+			log.Insta <- fmt.Sprintf("x | <a : %s", err)
+			time.Sleep(20 * time.Second)
+		}
 	}
 }
