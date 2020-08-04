@@ -140,6 +140,8 @@ func main() {
 				go role(new) // async call to role(), runs as a one-off task (no return)
 			}
 			time.Sleep(60 * time.Second)
+		} else {
+			time.Sleep(15 * time.Second)
 		}
 	}
 }
