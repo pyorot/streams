@@ -41,8 +41,8 @@ func init() {
 	discord, err = discordgo.New("Bot " + Env.GetOrExit("DISCORD"))
 	ExitIfError(err)
 	getStreamsParams = helix.StreamsParams{
-		GameIDs: []string{Env.GetOrExit("GAME")}, // list of games to query
-		First:   100,                             // maximum query results (limit is 100)
+		GameIDs: []string{Env.GetOrExit("GAME_ID")}, // list of games to query
+		First:   100,                                // maximum query results (limit is 100)
 	}
 
 	// filter init

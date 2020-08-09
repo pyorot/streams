@@ -1,5 +1,4 @@
 // standalone dir manager (draft)
-// game is hardcoded (TODO: derive from gameID)
 package main
 
 import (
@@ -16,6 +15,7 @@ import (
 var err error                  // placeholder error
 var discord *discordgo.Session // Discord client
 var serverID string            // Discord ID of the server the role belongs to
+var gameName string            // Game title as claimed by Twitch
 
 // runs on program start
 func init() {
@@ -26,6 +26,7 @@ func init() {
 	ExitIfError(err)
 	dir.Init(discord, Env.GetOrExit("DIR_CHANNEL"), true)
 	serverID = Env.GetOrExit("SERVER")
+	gameName = Env.GetOrExit("GAME_NAME")
 	discord.AddHandler(dataHandler)
 	log.Insta <- ". | ready\n"
 }
@@ -40,7 +41,7 @@ func dataHandler(s *discordgo.Session, m *discordgo.PresenceUpdate) {
 	if m.Game != nil &&
 		m.Game.Name == "Twitch" &&
 		m.Game.Type == discordgo.GameTypeStreaming &&
-		m.Game.State == "Super Mario Sunshine" &&
+		m.Game.State == gameName &&
 		m.GuildID == serverID {
 		k, v := m.Game.URL[strings.LastIndex(m.Game.URL, "/")+1:], m.User.ID
 		log.Insta <- fmt.Sprintf("d+| %s", k)
