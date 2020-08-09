@@ -3,7 +3,7 @@ A scrappy first-draft of how this program (v2) works.
 
 ## Files
 * **main/fetch.go** – Twitch API routines to `auth()` and `fetch()` data
-* **main/main.go** – core init and worker routines + twicord init
+* **main/main.go** – core init and worker routines + dir init
 * **main/msg.go** – Discord message channel init, worker, API methods
 * **main/role.go** – Discord role init, execution task, API methods
 * **main/stream.go** – streams struct with conversion methods + filter
@@ -20,7 +20,7 @@ This struct (defined in streams.go) and its conversions are the core data flow i
 
 **Data transitions r.e. messages:**
 * **user, start, thumbnail**: these 3 properties are set from incoming data in `newStreamFromTwitch()`, and never modified. The state stream copies the first snapshot during an add, then isn't touched, and gets encoded to + decoded from Discord messages.
-* **filter**: this is calculated from incoming data by checking twicord and running `filter()` on the title, but otherwise behaves as user/start/thumbnail. This means once the first snapshot enters internal state after an add, it will never change. However, filtered/unfiltered channels see different streams of snapshots (based on checking the filter), so messages representing the same stream may still differ between the two.
+* **filter**: this is calculated from incoming data by checking dir and running `filter()` on the title, but otherwise behaves as user/start/thumbnail. This means once the first snapshot enters internal state after an add, it will never change. However, filtered/unfiltered channels see different streams of snapshots (based on checking the filter), so messages representing the same stream may still differ between the two.
 * **title**: this is set in an incoming snapshot or persisted message from the relevant read data, then every command other than remove updates it in internal state to match the latest snapshot.
 * **length**: this is not set in an incoming snapshot, read if it exists from a persisted message, and otherwise *only* calculated (from the state stream's start) and set during a remove.
 
@@ -91,7 +91,7 @@ Any changes to or recovery of the bot are done by restarting it, at any time. It
 `msgAgent.init()` looks at the last 50 messages in its Discord channel and takes ownership of any representing active streams, reading info about a stream from its message into the state.
 
 **role**:  
-`roleInit()` creates a one-off inverted twicord, then goes through the entire user-list of the server to find matches. The initial state is then that, with unrecognised role-holders being flagged for removal by inserting their Discord ID instead of their twitch handle into the state (this is both unique and will never match a Twitch username).
+`roleInit()` creates a one-off inverted dir, then goes through the entire user-list of the server to find matches. The initial state is then that, with unrecognised role-holders being flagged for removal by inserting their Discord ID instead of their twitch handle into the state (this is both unique and will never match a Twitch username).
 
 ## Comparing Msg and Role
 msg is the more suitable design, since it gives a sequential consistency guarantee to the state, and Discord API rate limits are scoped to the channel/role, i.e. exactly the requests managed by a single instance of msg/role, so they can be paced precisely in series.

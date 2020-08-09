@@ -14,17 +14,17 @@ New streams are posted with a green embed. When a stream goes offline, its post 
 **Roles**  
 A user simply has the role while live. Display the role in the members sidebar, and each user's stream will be easily clickable provided ey is online on Discord, has Twitch correctly linked, and has streamer mode enabled.
 
-*Since Discord doesn't reveal a user's associated Twitch account to bots, the roles functionality requires manually-posted lists of Discord user IDs and associated Twitch usernames, marked **twicord**, in a separate Discord channel. The bot will parse the 50 latest posts in a channel that have a syntax as follows:*
+*Since Discord doesn't reveal a user's associated Twitch account to bots, the roles functionality requires manually-posted lists of Discord user IDs and associated Twitch usernames, marked **dir**, in a separate Discord channel. The bot will parse the 50 latest posts in a channel that have a syntax as follows:*
 
 ```
-twicord <optional-comment-here-with-no-newlines>
+dir <optional-comment-here-with-no-newlines>
 <discord-user-ID-1> <twitch-user-handle1>
 <discord-user-ID-2> <twitch-user-handle2>
 ...
 ```
 
 **Filtering**  
-The twicord tables inherently filter which Discord users get assigned a role. A message channel can also be filtered. This means it accepts only streams whose users are in twicord or whose tags/titles match a list of tags/keywords. E.g.
+The dir tables inherently filter which Discord users get assigned a role. A message channel can also be filtered. This means it accepts only streams whose users are in dir or whose tags/titles match a list of tags/keywords. E.g.
 ```
 FILTER_TAGS=7cefbf30-4c3e-4aa7-99cd-70aabb662f27
 FILTER_KEYWORDS=speedrun,any%,all dungeons,glitchless,race,mss,pausa,practice
@@ -64,11 +64,11 @@ The settings are:
 * **GAME** – ID of the game to track (requires an API request to find out).
 * **MSG_CHANNELS** – list of Discord channel IDs separated by commas, no spaces. Prepend + for filtered channels and * for unfiltered. E.g. `+693315004228698142,*296066428694429697`.
 * **MSG_ICON** – custom icon for message embeds.
-* **MSG_ICON_PASS** – icon for streams that pass the filter (tag/keyword/twicord); requires and overrides `MSG_ICON`.
-* **MSG_ICON_KNOWN** – icon for users that are in twicord; requires and overrides `MSG_ICON_PASS`.
+* **MSG_ICON_PASS** – icon for streams that pass the filter (tag/keyword/dir); requires and overrides `MSG_ICON`.
+* **MSG_ICON_KNOWN** – icon for users that are in dir; requires and overrides `MSG_ICON_PASS`.
 * **ROLE** – ID of Discord streams role.
 * **ROLE_SERVER** – ID of Discord server containing streams role.
-* **TWICORD_CHANNEL** – ID of Discord channel for loading twicord directory.
+* **TWICORD_CHANNEL** – ID of Discord channel for loading dir directory.
 * **FILTER_TAGS** – list of Twitch tags to filter streams for (in UUID format), separated by commas, no spaces.
 * **FILTER_KEYWORDS** – list of substrings to filter stream titles for, separated by commas, no spaces.
 

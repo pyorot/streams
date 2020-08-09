@@ -30,7 +30,7 @@ func newStreamFromTwitch(r *helix.Stream) *stream {
 		thumbnail: r.ThumbnailURL[:strings.LastIndexByte(r.ThumbnailURL, '-')+1] + "440x248.jpg",
 		// length is not set until stream goes down
 	}
-	if _, isReg := twicord[strings.ToLower(s.user)]; isReg {
+	if _, isReg := dir[strings.ToLower(s.user)]; isReg {
 		s.filter = 2
 	} else if filterStream(r) {
 		s.filter = 1

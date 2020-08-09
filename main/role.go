@@ -18,11 +18,11 @@ func roleInit() chan (bool) {
 	res := make(chan (bool), 1) // returned immediately; posted to when done
 	go func() {                 // anonymous function in new thread; posts to res when done
 		// create inverse dict to identify for each discord user if eir stream is still up
-		inverseTwicord := make(map[string]string, len(twicord))
-		for k, v := range twicord {
-			inverseTwicord[v] = k
+		inverseDir := make(map[string]string, len(dir))
+		for k, v := range dir {
+			inverseDir[v] = k
 		}
-		// find every discord member with the role and register using twicord
+		// find every discord member with the role and register using dir
 		next := ""     // ID of next user, used to chain sync calls (endpoint has 1000-result limit)
 		userCount := 0 // will track total users detected
 		for {
@@ -36,8 +36,8 @@ func roleInit() chan (bool) {
 				for _, user := range users {
 					for _, role := range user.Roles {
 						if role == roleID { // if managed role is in user's roles
-							twitchHandle, isInTwicord := inverseTwicord[user.User.ID]
-							if isInTwicord {
+							twitchHandle, isInDir := inverseDir[user.User.ID]
+							if isInDir {
 								roles[twitchHandle] = user.User.ID
 							} else { // if unknown user, trigger role-removal by registering under unique non-existent handle
 								roles[user.User.ID] = user.User.ID
@@ -68,7 +68,7 @@ func role(new map[string]*stream) {
 	}
 	for user := range new { // iterate thru new to pick additions
 		_, isInOld := roles[user]
-		userID, isReg := twicord[user] // look-up Twitch username in twicord (skip user if not found)
+		userID, isReg := dir[user] // look-up Twitch username in dir (skip user if not found)
 		if !isInOld && isReg {
 			log.Insta <- "r | + " + user
 			addsCh[user] = roleAdd(userID) // async call; registers await chan
@@ -83,7 +83,7 @@ func role(new map[string]*stream) {
 	}
 	for user, ch := range addsCh {
 		if <-ch {
-			roles[user] = twicord[user]
+			roles[user] = dir[user]
 		}
 	}
 
