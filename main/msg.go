@@ -6,6 +6,7 @@ import (
 	"time"
 
 	log "github.com/Pyorot/streams/log"
+	. "github.com/Pyorot/streams/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -62,7 +63,7 @@ func newMsgAgent(channelID string, filtered bool) chan (*msgAgent) {
 func (a *msgAgent) init() {
 	// load message history
 	history, err := discord.ChannelMessages(a.channelID, 50, "", "", "") // 50 msgs
-	exitIfError(err)
+	ExitIfError(err)
 	// pick msgs that we'd been managing on last shutdown; register stream decoded from msg
 	for _, msg := range history {
 		if len(msg.Embeds) == 1 { // pick msgs with 1 embed

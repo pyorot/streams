@@ -5,6 +5,7 @@ import (
 	"time"
 
 	log "github.com/Pyorot/streams/log"
+	. "github.com/Pyorot/streams/utils"
 )
 
 // provides a task, role(), to call to process updates to roles
@@ -27,7 +28,7 @@ func roleInit() chan (bool) {
 		userCount := 0 // will track total users detected
 		for {
 			users, err := discord.GuildMembers(roleServerID, next, 1000)
-			exitIfError(err)
+			ExitIfError(err)
 			if len(users) == 0 { // found all users
 				break
 			} else { // process data and set "next" ahead of next call to see if there's more

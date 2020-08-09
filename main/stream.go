@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	. "github.com/Pyorot/streams/utils"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/nicklaw5/helix"
 )
@@ -45,10 +47,10 @@ func newStreamFromMsg(msg *discordgo.Message) *stream {
 	s.user = msg.Embeds[0].Author.Name[:strings.IndexByte(msg.Embeds[0].Author.Name, ' ')]   // first word in author
 	s.title = msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')] // "[user](link)" in description
 	s.start, err = time.Parse("2006-01-02T15:04:05-07:00", msg.Embeds[0].Timestamp)
-	exitIfError(err)
+	ExitIfError(err)
 	if msg.Embeds[0].Footer != nil && msg.Embeds[0].Footer.Text != "" {
 		s.length, err = time.ParseDuration(msg.Embeds[0].Footer.Text) // relying on go default format
-		exitIfError(err)
+		ExitIfError(err)
 	}
 	if msg.Embeds[0].Thumbnail != nil {
 		s.thumbnail = msg.Embeds[0].Thumbnail.URL
@@ -65,14 +67,14 @@ func newStreamFromMsg(msg *discordgo.Message) *stream {
 func newMsgFromStream(s *stream, state int) *discordgo.MessageEmbed {
 	return &discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{
-			Name:    s.user + ifThenElse(state == 0, " is live", " was live"),
+			Name:    s.user + IfThenElse(state == 0, " is live", " was live"),
 			URL:     "https://twitch.tv/" + s.user,
 			IconURL: iconURL[s.filter],
 		},
 		Description: fmt.Sprintf("[%s](%s)", s.title, "https://twitch.tv/"+s.user),
 		Color:       embedColours[state],
-		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: ifThenElse(state == 0, s.thumbnail, "")},
-		Footer:      &discordgo.MessageEmbedFooter{Text: ifThenElse(state == 0, "", strings.TrimSuffix(s.length.Truncate(time.Minute).String(), "0s"))},
+		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: IfThenElse(state == 0, s.thumbnail, "")},
+		Footer:      &discordgo.MessageEmbedFooter{Text: IfThenElse(state == 0, "", strings.TrimSuffix(s.length.Truncate(time.Minute).String(), "0s"))},
 		Timestamp:   s.start.Format("2006-01-02T15:04:05Z"),
 	}
 }
