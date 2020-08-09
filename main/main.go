@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/Pyorot/streams/dir"
 	log "github.com/Pyorot/streams/log"
 	. "github.com/Pyorot/streams/utils"
 
@@ -20,14 +20,12 @@ import (
 // stream.go: stream struct and conversion/filter methods
 // utils.go:  macros for if, errors, env vars
 
-var err error                     // placeholder error
-var twitch *helix.Client          // Twitch client
-var discord *discordgo.Session    // Discord client
-var filterRequired bool           // will generate filtered map of incoming streams
-var filterTags []string           // Twitch tags to look for
-var filterKeywords []string       // title keywords to look for
-var dir = make(map[string]string) // map: twitch user -> Discord user ID
-// dir is used to look up Discord users to assign roles to + maybe to filter a msg channel
+var err error                  // placeholder error
+var twitch *helix.Client       // Twitch client
+var discord *discordgo.Session // Discord client
+var filterRequired bool        // will generate filtered map of incoming streams
+var filterTags []string        // Twitch tags to look for
+var filterKeywords []string    // title keywords to look for
 
 // runs on program start
 func init() {
@@ -57,7 +55,7 @@ func init() {
 		log.Insta <- fmt.Sprintf(". | filter keywords [%d]: %s", len(filterKeywords), filterKeywords)
 	}
 	if dirChannel := Env.GetOrEmpty("DIR_CHANNEL"); dirChannel != "" {
-		dirInit(dirChannel) // do this sync cos role init depends on it
+		dir.Init(discord, dirChannel, false) // do this sync cos role init depends on it
 	}
 
 	// msg icons init (2,1,0 = known on dir, not known but passed filter, other rsp.)
@@ -136,25 +134,4 @@ func main() {
 			time.Sleep(15 * time.Second)
 		}
 	}
-}
-
-// blocking http req to read dir data from a Discord chan
-// that contains a bunch of posts in the format (where dui = Discord userID, tun = Twitch username):
-// "dir<comment>\n<dui1>\s<tun1>\n<dui2>\s<tun2>\n..."
-func dirInit(channel string) {
-	history, err := discord.ChannelMessages(channel, 50, "", "", "") // get last 50 msgs (max poss is 50)
-	ExitIfError(err)
-	for _, msg := range history {
-		if len(msg.Content) >= 4 && msg.Content[:3] == "dir" { // pick msgs starting with "dir"
-			scanner := bufio.NewScanner(strings.NewReader(msg.Content)) // line-by-line iterator
-			scanner.Scan()                                              // skip 1st line ("dir<comment>\n")
-			for scanner.Scan() {
-				line := strings.TrimSpace(scanner.Text())
-				splitIndex := strings.IndexByte(line, ' ')
-				dir[strings.ToLower(line[splitIndex+1:])] = line[:splitIndex] // dict is rhs → lhs
-			}
-			ExitIfError(scanner.Err())
-		}
-	}
-	log.Insta <- fmt.Sprintf(". | dir loaded (from %s) [%d]", channel, len(dir))
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	dir "github.com/Pyorot/streams/dir"
 	log "github.com/Pyorot/streams/log"
 	. "github.com/Pyorot/streams/utils"
 )
@@ -19,10 +20,7 @@ func roleInit() chan (bool) {
 	res := make(chan (bool), 1) // returned immediately; posted to when done
 	go func() {                 // anonymous function in new thread; posts to res when done
 		// create inverse dict to identify for each discord user if eir stream is still up
-		inverseDir := make(map[string]string, len(dir))
-		for k, v := range dir {
-			inverseDir[v] = k
-		}
+		inverseDir := dir.Inverse()
 		// find every discord member with the role and register using dir
 		next := ""     // ID of next user, used to chain sync calls (endpoint has 1000-result limit)
 		userCount := 0 // will track total users detected
@@ -69,8 +67,8 @@ func role(new map[string]*stream) {
 	}
 	for user := range new { // iterate thru new to pick additions
 		_, isInOld := roles[user]
-		userID, isReg := dir[user] // look-up Twitch username in dir (skip user if not found)
-		if !isInOld && isReg {
+		userID := dir.Get(user) // look-up Twitch username in dir (skip user if not found)
+		if !isInOld && userID != "" {
 			log.Insta <- "r | + " + user
 			addsCh[user] = roleAdd(userID) // async call; registers await chan
 		}
@@ -84,7 +82,7 @@ func role(new map[string]*stream) {
 	}
 	for user, ch := range addsCh {
 		if <-ch {
-			roles[user] = dir[user]
+			roles[user] = dir.Get(user)
 		}
 	}
 
