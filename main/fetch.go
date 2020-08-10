@@ -39,7 +39,7 @@ func auth() {
 		if err == nil {
 			twitch.SetAppAccessToken(res.Data.AccessToken)
 			authed = true
-			log.Insta <- fmt.Sprintf("<a| %s", res.Data.AccessToken)
+			log.Insta <- fmt.Sprintf("< | a: %s", res.Data.AccessToken)
 		} else {
 			log.Insta <- fmt.Sprintf("x | <a : %s", err)
 			time.Sleep(20 * time.Second)

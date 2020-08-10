@@ -38,6 +38,7 @@ func init() {
 	})
 	ExitIfError(err)
 	discord, err = discordgo.New("Bot " + Env.GetOrExit("DISCORD"))
+	discord.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsGuildPresences) // 2020 api change: opt into events
 	ExitIfError(err)
 	getStreamsParams = helix.StreamsParams{
 		GameIDs: []string{Env.GetOrExit("GAME_ID")}, // list of games to query
@@ -88,15 +89,13 @@ func init() {
 	// role init (requires dir)
 	var awaitRoles = make([]chan (bool), 0)            // a list to collect async tasks, to be awaited later. there's only 1 but i might add more later
 	if roleID = Env.GetOrEmpty("ROLE"); roleID != "" { // if ROLE is missing, user probs doesn't want a role
-		roleServerID = Env.GetOrExit("SERVER")      // if ROLE is there but SERVER missing, user probs forgot the server
+		serverID = Env.GetOrExit("SERVER")          // if ROLE is there but SERVER missing, user probs forgot the server
 		awaitRoles = append(awaitRoles, roleInit()) // run async task (returns channel)
 	}
 
 	// await parallel init tasks (by doing blocking reads on their returned channels; see rsp. functions)
 	for _, awaitMsgAgent := range awaitMsgAgents {
-		a := <-awaitMsgAgent // the task will bear an agent a
-		msgAgents = append(msgAgents, a)
-		log.Insta <- fmt.Sprintf("m%d| started %s-%t", a.ID, a.channelID, a.filtered)
+		msgAgents = append(msgAgents, <-awaitMsgAgent) // the task will bear an agent
 	}
 	for _, awaitRole := range awaitRoles {
 		<-awaitRole

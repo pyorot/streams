@@ -76,7 +76,6 @@ func add(s *discordgo.Session, m *discordgo.PresenceUpdate) {
 		m.GuildID == serverID
 	if filter {
 		k, v := m.Game.URL[strings.LastIndex(m.Game.URL, "/")+1:], m.User.ID
-		log.Insta <- fmt.Sprintf("d | < %s", k)
 		lock.Lock()
 		defer lock.Unlock()
 		if data[k] != v { // add only if new

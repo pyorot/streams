@@ -13,13 +13,13 @@ type utilsEnv struct{}
 // Env : utility functions for environment variables
 var Env utilsEnv
 
-// Load environment variables from .env file if existent
+// Load environment variables from .env file if existent (else assume pre-loaded)
 func (utilsEnv) Load() {
 	err := godotenv.Load()
 	if err == nil {
-		log.Insta <- ". | Env vars loaded from .env"
+		log.Insta <- ". | env vars loaded from .env"
 	} else if os.IsNotExist(err) {
-		log.Insta <- ". | Env vars pre-loaded"
+		log.Insta <- ". | env vars pre-loaded"
 	} else {
 		panic(err)
 	}

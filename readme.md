@@ -1,3 +1,5 @@
+***Working on v3 – all docs are out of date.***
+
 # Streams
 This is a bot that **tracks who's streaming a particular game** on Twitch, and:
 * posts + updates the stream into a Discord (messages) channel

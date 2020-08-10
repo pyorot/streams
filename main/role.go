@@ -12,7 +12,7 @@ import (
 // provides a task, role(), to call to process updates to roles
 
 var roleID string                   // Discord ID of the role
-var roleServerID string             // Discord ID of the server the role belongs to
+var serverID string                 // Discord ID of the server the role belongs to
 var roles = make(map[string]string) // map of managed users (Twitch username → Discord userID). inclusion = has role
 
 // non-blocking http req to load all users and register to state via inverse look-up
@@ -25,7 +25,7 @@ func roleInit() chan (bool) {
 		next := ""     // ID of next user, used to chain sync calls (endpoint has 1000-result limit)
 		userCount := 0 // will track total users detected
 		for {
-			users, err := discord.GuildMembers(roleServerID, next, 1000)
+			users, err := discord.GuildMembers(serverID, next, 1000)
 			ExitIfError(err)
 			if len(users) == 0 { // found all users
 				break
@@ -47,7 +47,7 @@ func roleInit() chan (bool) {
 				}
 			}
 		}
-		log.Insta <- fmt.Sprintf("r | init [%d/%d]", len(roles), userCount)
+		log.Insta <- fmt.Sprintf("r | init [%d/%d] (%s)", len(roles), userCount, serverID)
 		res <- true
 	}()
 	return res
@@ -93,7 +93,7 @@ func role(new map[string]*stream) {
 func roleAdd(userID string) chan (bool) {
 	res := make(chan (bool), 1)
 	go func() {
-		err := discord.GuildMemberRoleAdd(roleServerID, userID, roleID)
+		err := discord.GuildMemberRoleAdd(serverID, userID, roleID)
 		time.Sleep(1 * time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
 			log.Insta <- fmt.Sprintf("x | r+ | %s : %s", userID, err)
@@ -107,7 +107,7 @@ func roleAdd(userID string) chan (bool) {
 func roleRemove(userID string) chan (bool) {
 	res := make(chan (bool), 1)
 	go func() {
-		err := discord.GuildMemberRoleRemove(roleServerID, userID, roleID)
+		err := discord.GuildMemberRoleRemove(serverID, userID, roleID)
 		time.Sleep(1 * time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
 			log.Insta <- fmt.Sprintf("x | r- | %s : %s", userID, err)

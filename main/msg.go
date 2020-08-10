@@ -77,7 +77,7 @@ func (a *msgAgent) init() {
 			}
 		}
 	}
-	log.Insta <- fmt.Sprintf("m%d| init [%d | %d]", a.ID, len(a.streamsLive), len(a.streamsExpiring))
+	log.Insta <- fmt.Sprintf("%-2d| init [%d|%d] (%s-%-5t)", a.ID, len(a.streamsLive), len(a.streamsExpiring), a.channelID, a.filtered)
 }
 
 // the message-managing co-routine
@@ -110,14 +110,14 @@ func (a *msgAgent) run() {
 			case 'a':
 				_, exists := a.streamsExpiring[user] // is the user in expiring i.e. did eir stream go down <15mins ago
 				if !exists {                         // will create new msg, then edit in info (to avoid losing a duplicate if it fails)
-					log.Insta <- fmt.Sprintf("m%d| + %s", a.ID, user)
+					log.Insta <- fmt.Sprintf("%-2d| + %s", a.ID, user)
 					msgID := a.msgAdd()                                     // create new blank (yellow) msg
 					a.streamsLive[user] = &streamEntry{streamLatest, msgID} // register msg
 				} else { // will swap the old msg with newest orange msg (keeps greens grouped at bottom), then turns it green
 					msgID := a.streamsExpiring[user].msgID
-					maxUser, maxID := a.streamsExpiring.getExtremalEntry(+1)        // find ID of newest orange msg
-					log.Insta <- fmt.Sprintf("m%d| * %s ↔ %s", a.ID, user, maxUser) //
-					if maxID != msgID {                                             // if a swap even needs to be done
+					maxUser, maxID := a.streamsExpiring.getExtremalEntry(+1)         // find ID of newest orange msg
+					log.Insta <- fmt.Sprintf("%-2d| * %s ↔ %s", a.ID, user, maxUser) //
+					if maxID != msgID {                                              // if a swap even needs to be done
 						a.streamsExpiring[user].msgID, a.streamsExpiring[maxUser].msgID = maxID, msgID // swap in internal state
 						a.msgEdit(a.streamsExpiring[maxUser], 1)                                       // edit older msg (to the closed stream)
 					}
@@ -128,15 +128,15 @@ func (a *msgAgent) run() {
 				a.msgEdit(a.streamsLive[user], 0) // update (newer) msg with latest info (turns green)
 
 			case 'e':
-				log.Insta <- fmt.Sprintf("m%d| ~ %s", a.ID, user)
+				log.Insta <- fmt.Sprintf("%-2d| ~ %s", a.ID, user)
 				a.streamsLive[user].stream.title = streamLatest.title // update stream title
 				a.msgEdit(a.streamsLive[user], 0)                     // update msg
 
 			case 'r': // will swap its msg with oldest green msg (keeps greens grouped at bottom), then turns it orange
 				msgID := a.streamsLive[user].msgID
-				minUser, minID := a.streamsLive.getExtremalEntry(-1)            // find ID of oldest green msg
-				log.Insta <- fmt.Sprintf("m%d| - %s ↔ %s", a.ID, user, minUser) //
-				if minID != msgID {                                             // if a swap even needs to be done
+				minUser, minID := a.streamsLive.getExtremalEntry(-1)             // find ID of oldest green msg
+				log.Insta <- fmt.Sprintf("%-2d| - %s ↔ %s", a.ID, user, minUser) //
+				if minID != msgID {                                              // if a swap even needs to be done
 					a.streamsLive[user].msgID, a.streamsLive[minUser].msgID = minID, msgID // swap in internal state
 					a.msgEdit(a.streamsLive[minUser], 0)                                   // edit newer msg (to the open stream)
 				}
@@ -150,13 +150,13 @@ func (a *msgAgent) run() {
 		// manage expiries (clear streams that expired >15 mins ago)
 		for user, se := range a.streamsExpiring {
 			if s := se.stream; time.Since(s.start.Add(s.length)).Minutes() > 15 {
-				log.Insta <- fmt.Sprintf("m%d| / %s", a.ID, user)
+				log.Insta <- fmt.Sprintf("%-2d| / %s", a.ID, user)
 				delete(a.streamsExpiring, user)
 				a.msgEdit(se, 2)
 			}
 		}
 
-		log.Bkgd <- fmt.Sprintf("m%d| ok [%d]", a.ID, len(a.streamsLive))
+		log.Bkgd <- fmt.Sprintf("%-2d| ok [%d]", a.ID, len(a.streamsLive))
 	}
 }
 

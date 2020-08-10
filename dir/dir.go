@@ -32,8 +32,8 @@ func Init(discord_ *discordgo.Session) {
 		err := discord.Open()   // start connection, trigger Ready event
 		ExitIfError(err)
 	}
-	log.Insta <- fmt.Sprintf("d | init (channel: %s; managed: %t)", channel, managed)
 	Load() // await Ready event, then load
+	log.Insta <- fmt.Sprintf("d | init [%d] (%s-%-5t) (%s, %s)", len(data), channel, managed, serverID, gameName)
 }
 
 // Load : loads data from the dir channel and assigns it to data variable
