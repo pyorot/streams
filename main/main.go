@@ -26,13 +26,12 @@ var discord *discordgo.Session // Discord client
 var filterRequired bool        // will generate filtered map of incoming streams
 var filterTags []string        // Twitch tags to look for
 var filterKeywords []string    // title keywords to look for
+var dirLastLoad time.Time      // last time dir was loaded (0 if dir non-existent)
 
 // runs on program start
 func init() {
-	// load env vars from .env file if present (else expect they're already loaded)
-	Env.Load()
-
 	// core init
+	Env.Load()
 	twitch, err = helix.NewClient(&helix.Options{
 		ClientID:     Env.GetOrExit("TWITCH_ID"),
 		ClientSecret: Env.GetOrExit("TWITCH_SEC"),
@@ -55,7 +54,8 @@ func init() {
 		log.Insta <- fmt.Sprintf(". | filter keywords [%d]: %s", len(filterKeywords), filterKeywords)
 	}
 	if dirChannel := Env.GetOrEmpty("DIR_CHANNEL"); dirChannel != "" {
-		dir.Init(discord, dirChannel, false) // do this sync cos role init depends on it
+		dir.Init(discord) // do this sync cos role init depends on it
+		dirLastLoad = time.Now()
 	}
 
 	// msg icons init (2,1,0 = known on dir, not known but passed filter, other rsp.)
@@ -107,9 +107,17 @@ func init() {
 // main function (infinite loop)
 func main() {
 	for {
+		// check for dir reload
+		now := time.Now()
+		if !dirLastLoad.IsZero() && now.Sub(dirLastLoad) >= 12*time.Hour {
+			dir.Load()
+			dirLastLoad = now
+		}
+		// fetch and process
 		new, err := fetch() // synchronous Twitch http call
 		if err == nil {
-			log.Bkgd <- fmt.Sprintf("< | %s", time.Now().Format("15:04:05"))
+			log.Bkgd <- fmt.Sprintf("< | %s", now.Format("15:04:05"))
+			// filter data
 			var newFiltered map[string]*stream // declare a map to subset "new" on known/filtered users
 			if filterRequired {
 				newFiltered = make(map[string]*stream) // init said map cos we need it
@@ -119,6 +127,7 @@ func main() {
 					}
 				}
 			}
+			// send to msg agents
 			for _, a := range msgAgents {
 				if a.filtered { // the agents run msg(), a permanent worker coroutine thread that awaits on these channels
 					a.inCh <- newFiltered
@@ -126,6 +135,7 @@ func main() {
 					a.inCh <- new
 				}
 			}
+			// send to role agent
 			if roleID != "" {
 				go role(new) // async call to role(), runs as a one-off task (no return)
 			}
