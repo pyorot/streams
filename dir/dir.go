@@ -19,7 +19,8 @@ import (
 var discord *discordgo.Session // Discord session (managed at higher level)
 var channel string             // dir channel
 var data map[string]string     // map: twitch user -> Discord user ID
-var lock sync.Mutex            // data mutex
+var blocks map[string]bool     // set: twitch user
+var lock sync.Mutex            // mutex for data (blocks is only accessed in one thread)
 
 // Init : starts the dir component
 func Init(discord_ *discordgo.Session) {
@@ -33,7 +34,7 @@ func Init(discord_ *discordgo.Session) {
 		ExitIfError(err)
 	}
 	Load() // await Ready event, then load
-	log.Insta <- fmt.Sprintf("d | init [%d] (%s-%-5t) (%s, %s)", len(data), channel, managed, serverID, gameName)
+	log.Insta <- fmt.Sprintf("d | init [%d|%d] (%s-%-5t) (%s, %s)", len(data), len(blocks), channel, managed, serverID, gameName)
 }
 
 // Load : loads data from the dir channel and assigns it to data variable
@@ -48,6 +49,7 @@ func Load() {
 	ExitIfError(err)
 	dataNew := make(map[string]string, 70)
 	dataInv := make(map[string]string, 70) // ephemeral, just to check for duplicates
+	blocksNew := make(map[string]bool, 10)
 	var latestAutoMsgID int64
 	// 2: process each dir message
 	for _, msg := range history {
@@ -79,13 +81,21 @@ func Load() {
 			if discord.State.User != nil && msg.Author.ID == discord.State.User.ID && msgID > latestAutoMsgID {
 				latestAutoMsgID, manMsgID = msgID, msg.ID
 			}
+		} else if len(msg.Content) >= 6 && msg.Content[:5] == "block" {
+			s := bufio.NewScanner(strings.NewReader(msg.Content)) // line iterator
+			s.Scan()                                              // skip 1st line ("block<comment>\n")
+			for s.Scan() {
+				blocksNew[strings.ToLower(strings.TrimSpace(s.Text()))] = true
+			}
+			ExitIfError(s.Err())
 		}
 	}
 	// 3: commit to state
 	lock.Lock()
 	data = dataNew
+	blocks = blocksNew
 	lock.Unlock()
-	log.Insta <- fmt.Sprintf("d | loaded [%d]", len(data))
+	log.Insta <- fmt.Sprintf("d | loaded [%d|%d]", len(data), len(blocks))
 }
 
 // Get :
@@ -93,6 +103,12 @@ func Get(k string) string {
 	lock.Lock()
 	defer lock.Unlock()
 	return data[k]
+}
+
+// IsBlocked :
+func IsBlocked(k string) bool {
+	_, exists := blocks[k]
+	return exists
 }
 
 // Inverse :

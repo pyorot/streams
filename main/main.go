@@ -116,6 +116,12 @@ func main() {
 		new, err := fetch() // synchronous Twitch http call
 		if err == nil {
 			log.Bkgd <- fmt.Sprintf("< | %s", now.Format("15:04:05"))
+			// prune blocked names
+			for user := range new {
+				if dir.IsBlocked(user) {
+					delete(new, user)
+				}
+			}
 			// filter data
 			var newFiltered map[string]*stream // declare a map to subset "new" on known/filtered users
 			if filterRequired {
