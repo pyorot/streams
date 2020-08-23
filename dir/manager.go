@@ -68,20 +68,21 @@ func manage() {
 }
 
 // callback to post entries to addCh from WebSocket events
-func add(s *discordgo.Session, m *discordgo.PresenceUpdate) {
-	filter := m.Game != nil &&
-		m.Game.Name == "Twitch" &&
-		m.Game.Type == discordgo.GameTypeStreaming &&
-		m.Game.State == gameName &&
-		m.GuildID == serverID
-	if filter {
-		k, v := m.Game.URL[strings.LastIndex(m.Game.URL, "/")+1:], m.User.ID
-		lock.Lock()
-		defer lock.Unlock()
-		if data[k] != v { // add only if new
-			data[k] = v
-			if managed {
-				addCh <- struct{ k, v string }{k, v}
+func add(s *discordgo.Session, pu *discordgo.PresenceUpdate) {
+	for _, a := range pu.Activities {
+		filter := pu.GuildID == serverID &&
+			a.Name == "Twitch" &&
+			a.Type == discordgo.GameTypeStreaming &&
+			a.State == gameName
+		if filter {
+			k, v := a.URL[strings.LastIndex(a.URL, "/")+1:], pu.User.ID
+			lock.Lock()
+			defer lock.Unlock()
+			if data[k] != v { // add only if new
+				data[k] = v
+				if managed {
+					addCh <- struct{ k, v string }{k, v}
+				}
 			}
 		}
 	}
