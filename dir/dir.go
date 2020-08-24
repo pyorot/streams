@@ -22,19 +22,25 @@ var data map[string]string     // map: twitch user -> Discord user ID
 var blocks map[string]bool     // set: twitch user
 var lock sync.Mutex            // mutex for data (blocks is only accessed in one thread)
 
-// Init : starts the dir component
-func Init(discord_ *discordgo.Session) {
-	discord = discord_
-	channel, managed = Env.GetOrExit("DIR_CHANNEL"), Env.GetOrEmpty("MANAGED") == "true"
-	if managed {
-		gameName, serverID = Env.GetOrExit("GAME_NAME"), Env.GetOrExit("SERVER")
-		go manage()             // start worker reading from addCh
-		discord.AddHandler(add) // start callback posting to addCh
-		err := discord.Open()   // start connection, trigger Ready event
-		ExitIfError(err)
-	}
-	Load() // await Ready event, then load
-	log.Insta <- fmt.Sprintf("d | init [%d|%d] (%s-%-5t) (%s, %s)", len(data), len(blocks), channel, managed, serverID, gameName)
+// Init : async init of dir component
+func Init(discord_ *discordgo.Session) chan (bool) {
+	res := make(chan (bool), 1)
+	go func() {
+		discord = discord_
+		channel, managed = Env.GetOrExit("DIR_CHANNEL"), Env.GetOrEmpty("DIR_MANAGED") == "true"
+		if managed {
+			gameName, serverID = Env.GetOrExit("GAME_NAME"), Env.GetOrExit("SERVER")
+			go manage()                                                                      // start worker reading from addCh
+			discord.AddHandler(add)                                                          // start callback posting to addCh
+			discord.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsGuildPresences) // 2020 api change: opt into events
+			err := discord.Open()                                                            // start connection, trigger Ready event
+			ExitIfError(err)
+		}
+		Load() // await Ready event, then load
+		log.Insta <- fmt.Sprintf("d | init [%d|%d] (%s-%-5t) (%s, %s)", len(data), len(blocks), channel, managed, serverID, gameName)
+		res <- true
+	}()
+	return res
 }
 
 // Load : loads data from the dir channel and assigns it to data variable

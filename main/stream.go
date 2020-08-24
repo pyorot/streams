@@ -100,3 +100,14 @@ func filterStream(r *helix.Stream) bool {
 	// else
 	return false
 }
+
+// called only in main() to subset streams using stream.filter >= 1 before passing to filtered msg agents
+func subsetStreams(input map[string]*stream) map[string]*stream {
+	output := make(map[string]*stream)
+	for user, stream := range input {
+		if stream.filter >= 1 {
+			output[user] = stream
+		}
+	}
+	return output
+}
