@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Pyorot/streams/log"
 	"github.com/joho/godotenv"
 )
 
@@ -17,9 +16,9 @@ var Env utilsEnv
 func (utilsEnv) Load() {
 	err := godotenv.Load()
 	if err == nil {
-		log.Insta <- ". | env vars loaded from .env"
+		Log.Insta <- ". | env vars loaded from .env"
 	} else if os.IsNotExist(err) {
-		log.Insta <- ". | env vars pre-loaded"
+		Log.Insta <- ". | env vars pre-loaded"
 	} else {
 		panic(err)
 	}

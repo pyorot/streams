@@ -5,7 +5,6 @@ import (
 	"time"
 
 	dir "github.com/Pyorot/streams/dir"
-	log "github.com/Pyorot/streams/log"
 	. "github.com/Pyorot/streams/utils"
 )
 
@@ -47,7 +46,7 @@ func roleInit() chan (bool) {
 				}
 			}
 		}
-		log.Insta <- fmt.Sprintf("r | init [%d/%d] (%s)", len(roles), userCount, serverID)
+		Log.Insta <- fmt.Sprintf("r | init [%d/%d] (%s)", len(roles), userCount, serverID)
 		res <- true
 	}()
 	return res
@@ -61,7 +60,7 @@ func role(new map[string]*stream) {
 	for user := range roles {                 // iterate thru old to pick removals
 		_, isInNew := new[user]
 		if !isInNew {
-			log.Insta <- "r | - " + user
+			Log.Insta <- "r | - " + user
 			removesCh[user] = roleRemove(roles[user]) // async call; registers await chan
 		}
 	}
@@ -69,7 +68,7 @@ func role(new map[string]*stream) {
 		_, isInOld := roles[user]
 		userID := dir.Get(user) // look-up Twitch username in dir (skip user if not found)
 		if !isInOld && userID != "" {
-			log.Insta <- "r | + " + user
+			Log.Insta <- "r | + " + user
 			addsCh[user] = roleAdd(userID) // async call; registers await chan
 		}
 	}
@@ -86,7 +85,7 @@ func role(new map[string]*stream) {
 		}
 	}
 
-	log.Bkgd <- fmt.Sprintf("r | ok [%d]", len(roles))
+	Log.Bkgd <- fmt.Sprintf("r | ok [%d]", len(roles))
 }
 
 // non-blocking http req to add role to user; returns channel to await success/failure
@@ -96,7 +95,7 @@ func roleAdd(userID string) chan (bool) {
 		err := discord.GuildMemberRoleAdd(serverID, userID, roleID)
 		time.Sleep(1 * time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
-			log.Insta <- fmt.Sprintf("x | r+ | %s : %s", userID, err)
+			Log.Insta <- fmt.Sprintf("x | r+ | %s : %s", userID, err)
 		}
 		res <- err == nil
 	}()
@@ -110,7 +109,7 @@ func roleRemove(userID string) chan (bool) {
 		err := discord.GuildMemberRoleRemove(serverID, userID, roleID)
 		time.Sleep(1 * time.Second) // avoid 5 posts / 5s rate limit
 		if err != nil {
-			log.Insta <- fmt.Sprintf("x | r- | %s : %s", userID, err)
+			Log.Insta <- fmt.Sprintf("x | r- | %s : %s", userID, err)
 		}
 		res <- err == nil
 	}()

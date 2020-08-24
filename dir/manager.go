@@ -5,7 +5,8 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Pyorot/streams/log"
+	. "github.com/Pyorot/streams/utils"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -34,23 +35,23 @@ func manage() {
 			if err != nil {
 				if err.Error()[:8] == "HTTP 404" {
 					manMsgID = "" // signals new msg needs to be created
-					log.Insta <- fmt.Sprintf("d | renew - missing")
+					Log.Insta <- fmt.Sprintf("d | renew - missing")
 				} else {
-					log.Insta <- fmt.Sprintf("x | d?: %s", err)
+					Log.Insta <- fmt.Sprintf("x | d?: %s", err)
 				}
 				continue
 			}
 			// 2.A.1: check edit fits in message
 			if len(msg.Content)+len(p.v)+len(p.k)+2 >= 2000 {
 				manMsgID = "" // signals new msg needs to be created
-				log.Insta <- fmt.Sprintf("d | renew - capacity")
+				Log.Insta <- fmt.Sprintf("d | renew - capacity")
 				continue
 			}
 		} else {
 			// 2.B: post blank message
 			msg, err = discord.ChannelMessageSend(channel, "dir")
 			if err != nil {
-				log.Insta <- fmt.Sprintf("x | d+: %s", err)
+				Log.Insta <- fmt.Sprintf("x | d+: %s", err)
 				continue
 			}
 			manMsgID, manMsgIDCopy = msg.ID, msg.ID
@@ -59,10 +60,10 @@ func manage() {
 		text := msg.Content + fmt.Sprintf("\n%s %s", p.v, p.k)
 		msg, err = discord.ChannelMessageEdit(channel, manMsgIDCopy, text)
 		if err != nil {
-			log.Insta <- fmt.Sprintf("x | d~: %s", err)
+			Log.Insta <- fmt.Sprintf("x | d~: %s", err)
 			continue
 		}
-		log.Insta <- fmt.Sprintf("d | > %s %s", p.v, p.k)
+		Log.Insta <- fmt.Sprintf("d | > %s %s", p.v, p.k)
 		p.k = "" // ack (got to the end): p is processed
 	}
 }

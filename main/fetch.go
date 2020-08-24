@@ -5,7 +5,8 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Pyorot/streams/log"
+	. "github.com/Pyorot/streams/utils"
+
 	"github.com/nicklaw5/helix"
 )
 
@@ -27,7 +28,7 @@ func fetch() (map[string]*stream, error) {
 		}
 	} else {
 		authed = !(res != nil && res.StatusCode == 401) // trigger re-auth next run iff last error was 401 (deref ptr first!)
-		log.Insta <- fmt.Sprintf("x | < : %s", err)
+		Log.Insta <- fmt.Sprintf("x | < : %s", err)
 	}
 	return dict, err
 }
@@ -35,13 +36,13 @@ func fetch() (map[string]*stream, error) {
 // blocking http request to renew Twitch auth token if required, retry until success
 func auth() {
 	for !authed {
-		res, err := twitch.GetAppAccessToken() // make api call
+		res, err := twitch.GetAppAccessToken(nil) // make api call
 		if err == nil {
 			twitch.SetAppAccessToken(res.Data.AccessToken)
 			authed = true
-			log.Insta <- fmt.Sprintf("< | a: %s", res.Data.AccessToken)
+			Log.Insta <- fmt.Sprintf("< | a: %s", res.Data.AccessToken)
 		} else {
-			log.Insta <- fmt.Sprintf("x | <a : %s", err)
+			Log.Insta <- fmt.Sprintf("x | <a : %s", err)
 			time.Sleep(20 * time.Second)
 		}
 	}

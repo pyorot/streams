@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	log "github.com/Pyorot/streams/log"
 	. "github.com/Pyorot/streams/utils"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -37,7 +37,7 @@ func Init(discord_ *discordgo.Session) chan (bool) {
 			ExitIfError(err)
 		}
 		Load() // await Ready event, then load
-		log.Insta <- fmt.Sprintf("d | init [%d|%d] (%s-%-5t) (%s, %s)", len(data), len(blocks), channel, managed, serverID, gameName)
+		Log.Insta <- fmt.Sprintf("d | init [%d|%d] (%s-%-5t) (%s, %s)", len(data), len(blocks), channel, managed, serverID, gameName)
 		res <- true
 	}()
 	return res
@@ -71,12 +71,12 @@ func Load() {
 				// 2:1.2: add to dir table (check for duplicates)
 				_, existsK := dataNew[k]
 				if existsK {
-					log.Insta <- fmt.Sprintf("! | d: twitch user %s declared multiple times", k)
+					Log.Insta <- fmt.Sprintf("! | d: twitch user %s declared multiple times", k)
 				}
 				dataNew[k] = v
 				_, existsV := dataInv[v]
 				if existsV {
-					log.Insta <- fmt.Sprintf("! | d: discord user %s declared multiple times", v)
+					Log.Insta <- fmt.Sprintf("! | d: discord user %s declared multiple times", v)
 				}
 				dataInv[v] = k
 			}
@@ -101,7 +101,7 @@ func Load() {
 	data = dataNew
 	blocks = blocksNew
 	lock.Unlock()
-	log.Insta <- fmt.Sprintf("d | loaded [%d|%d]", len(data), len(blocks))
+	Log.Insta <- fmt.Sprintf("d | loaded [%d|%d]", len(data), len(blocks))
 }
 
 // Get :

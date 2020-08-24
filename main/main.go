@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/Pyorot/streams/dir"
-	log "github.com/Pyorot/streams/log"
 	. "github.com/Pyorot/streams/utils"
 
 	"github.com/bwmarrin/discordgo"
@@ -42,11 +41,11 @@ func init() {
 	// filters + icons (sync, all optional)
 	if rawTags := Env.GetOrEmpty("FILTER_TAGS"); rawTags != "" {
 		filterTags = strings.Split(rawTags, ",")
-		log.Insta <- fmt.Sprintf(". | filter tags [%d]: %s", len(filterTags), filterTags)
+		Log.Insta <- fmt.Sprintf(". | filter tags [%d]: %s", len(filterTags), filterTags)
 	}
 	if rawKeywords := Env.GetOrEmpty("FILTER_KEYWORDS"); rawKeywords != "" {
 		filterKeywords = strings.Split(rawKeywords, ",")
-		log.Insta <- fmt.Sprintf(". | filter keywords [%d]: %s", len(filterKeywords), filterKeywords)
+		Log.Insta <- fmt.Sprintf(". | filter keywords [%d]: %s", len(filterKeywords), filterKeywords)
 	}
 	if url := Env.GetOrEmpty("MSG_ICON"); url != "" {
 		iconURL[0], iconURL[1], iconURL[2] = url, url, url
@@ -104,7 +103,7 @@ func init() {
 	}
 	awaitDir.Flush()
 	awaitRole.Flush()
-	log.Insta <- ". | initialised\n"
+	Log.Insta <- ". | initialised\n"
 }
 
 // main function (infinite loop)
@@ -121,7 +120,7 @@ func main() {
 		if twitchEnabled {
 			new, err := fetch() // synchronous Twitch http call
 			if err == nil {
-				log.Bkgd <- fmt.Sprintf("< | %s", now.Format("15:04:05"))
+				Log.Bkgd <- fmt.Sprintf("< | %s", now.Format("15:04:05"))
 				// prune blocked names
 				for user := range new {
 					if dir.IsBlocked(user) {
