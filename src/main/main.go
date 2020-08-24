@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Pyorot/streams/dir"
-	. "github.com/Pyorot/streams/utils"
+	"github.com/Pyorot/streams/src/dir"
+	. "github.com/Pyorot/streams/src/utils"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/nicklaw5/helix"

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	dir "github.com/Pyorot/streams/dir"
-	. "github.com/Pyorot/streams/utils"
+	dir "github.com/Pyorot/streams/src/dir"
+	. "github.com/Pyorot/streams/src/utils"
 )
 
 // provides a task, role(), to call to process updates to roles

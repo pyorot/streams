@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	. "github.com/Pyorot/streams/utils"
+	. "github.com/Pyorot/streams/src/utils"
 	"github.com/nicklaw5/helix"
 )
 

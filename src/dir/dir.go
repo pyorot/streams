@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	. "github.com/Pyorot/streams/utils"
+	. "github.com/Pyorot/streams/src/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
