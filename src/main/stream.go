@@ -15,6 +15,7 @@ import (
 // represents a current stream, for both live updates and internal state
 type stream struct {
 	user      string        // Twitch handle (set on creation, not updated in internal state)
+	urlUser   string        // Twitch handle for URL (set on creation, not updated in internal state)
 	title     string        // stream title (set on creation, updated)
 	start     time.Time     // stream started at (set on creation, not updated)
 	length    time.Duration // total stream length inc. gaps (not set on creation, updated on stream going offline)
@@ -26,11 +27,14 @@ var embedColours = [3]int{0x00ff00, 0xff8000, 0xff0000} // index = stream state:
 
 // called only in fetch() to generate live updates from incoming new data
 func newStreamFromTwitch(r *helix.Stream) *stream {
+	indexUserStart := strings.LastIndexByte(r.ThumbnailURL, '/') + 11
+	indexUserEnd := strings.LastIndexByte(r.ThumbnailURL, '-')
 	s := &stream{
 		user:      r.UserName,
+		urlUser:   r.ThumbnailURL[indexUserStart:indexUserEnd], // only way to get ascii name of JP users lmao
 		title:     r.Title,
 		start:     r.StartedAt,
-		thumbnail: r.ThumbnailURL[:strings.LastIndexByte(r.ThumbnailURL, '-')+1] + "440x248.jpg",
+		thumbnail: r.ThumbnailURL[:indexUserEnd+1] + "440x248.jpg",
 		// length is not set until stream goes down
 	}
 	if dir.Get(strings.ToLower(s.user)) != "" {
@@ -45,8 +49,9 @@ func newStreamFromTwitch(r *helix.Stream) *stream {
 // note: length calc (msg.run() remove) will be wrong if stream went down while program off
 func newStreamFromMsg(msg *discordgo.Message) *stream {
 	var s stream
-	s.user = msg.Embeds[0].Author.Name[:strings.IndexByte(msg.Embeds[0].Author.Name, ' ')]   // first word in author
-	s.title = msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')] // "[user](link)" in description
+	s.user = msg.Embeds[0].Author.Name[:strings.IndexByte(msg.Embeds[0].Author.Name, ' ')]        // first word in author
+	s.urlUser = msg.Embeds[0].Author.URL[strings.LastIndexByte(msg.Embeds[0].Author.URL, '/')+1:] // last part of url
+	s.title = msg.Embeds[0].Description[1:strings.IndexByte(msg.Embeds[0].Description, ']')]      // "[user](link)" in description
 	s.start, err = time.Parse("2006-01-02T15:04:05-07:00", msg.Embeds[0].Timestamp)
 	ExitIfError(err)
 	if msg.Embeds[0].Footer != nil && msg.Embeds[0].Footer.Text != "" {
@@ -69,10 +74,10 @@ func newMsgFromStream(s *stream, state int) *discordgo.MessageEmbed {
 	return &discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{
 			Name:    s.user + IfThenElse(state == 0, " is live", " was live"),
-			URL:     "https://twitch.tv/" + s.user,
+			URL:     "https://twitch.tv/" + s.urlUser,
 			IconURL: iconURL[s.filter],
 		},
-		Description: fmt.Sprintf("[%s](%s)", s.title, "https://twitch.tv/"+s.user),
+		Description: fmt.Sprintf("[%s](%s)", s.title, "https://twitch.tv/"+s.urlUser),
 		Color:       embedColours[state],
 		Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: IfThenElse(state == 0, s.thumbnail, "")},
 		Footer:      &discordgo.MessageEmbedFooter{Text: IfThenElse(state == 0, "", strings.TrimSuffix(s.length.Truncate(time.Minute).String(), "0s"))},
