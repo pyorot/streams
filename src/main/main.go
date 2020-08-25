@@ -30,7 +30,6 @@ var dirLastLoad time.Time               // last time dir was loaded (0 if dir no
 func init() {
 	// structures to handle async inits (lists to collect tasks to await later)
 	awaitDir := make(Await, 0)
-	awaitMsgAgents := make([]chan (*msgAgent), 0)
 	awaitRole := make(Await, 0)
 
 	// core (sync)
@@ -69,7 +68,7 @@ func init() {
 		if channel == "" {
 			continue
 		} else if channel[0] == '+' || channel[0] == '*' {
-			awaitMsgAgents = append(awaitMsgAgents, newMsgAgent(channel[1:], channel[0] == '+')) // run async task (returns channel)
+			msgAgents = append(msgAgents, newMsgAgent(channel[1:], channel[0] == '+'))
 			twitchEnabled = true
 		} else {
 			panic(fmt.Sprintf("First char of channel ID %s must be * or +", channel))
@@ -98,9 +97,6 @@ func init() {
 	}
 
 	// await parallel init tasks (by doing blocking reads on their returned channels; see rsp. functions)
-	for _, task := range awaitMsgAgents {
-		msgAgents = append(msgAgents, <-task) // the task will bear an agent
-	}
 	awaitDir.Flush()
 	awaitRole.Flush()
 	Log.Insta <- ". | initialised\n"
