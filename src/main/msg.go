@@ -99,7 +99,7 @@ func (a *msgAgent) process(streamsNew map[string]*stream) bool {
 	// panics are triggered when state needs to be recovered, or by mistake
 	defer func() {
 		if r := recover(); r != nil {
-			Log.Insta <- fmt.Sprintf("x | m%d+ [recovered]: %s", a.ID, r)
+			Log.Insta <- fmt.Sprintf("x | m%d [recovered]: %s", a.ID, r)
 		}
 	}()
 
@@ -143,8 +143,8 @@ func (a *msgAgent) process(streamsNew map[string]*stream) bool {
 				a.streamsLive[user] = a.streamsExpiring[user]         // move msg to live
 				delete(a.streamsExpiring, user)                       //
 				a.streamsLive[user].stream.title = streamLatest.title // update stream title
-				a.msgEdit(a.streamsLive[user], 0)                     // update newer msg with latest info (turns green)
 			}
+			a.msgEdit(a.streamsLive[user], 0) // update newer msg with latest info (turns green)
 
 		case 'e':
 			Log.Insta <- fmt.Sprintf("%-2d| ~ %s", a.ID, user)
@@ -198,7 +198,7 @@ func (m streamEntries) getExtremalEntry(sign int) (string, string) {
 func (a *msgAgent) msgAdd(s *stream) (msgID string) {
 	msgOut, err := discord.ChannelMessageSendComplex(
 		a.channelID,
-		&discordgo.MessageSend{Embed: newMsgFromStream(s, 0)},
+		newMsgStubFromStream(s),
 	)
 	time.Sleep(time.Second) // avoid 5 posts / 5s rate limit
 	if err != nil {
@@ -211,10 +211,12 @@ func (a *msgAgent) msgAdd(s *stream) (msgID string) {
 
 // blocking http req to edit msg (retry until successful)
 func (a *msgAgent) msgEdit(se *streamEntry, state int) {
+	emptyString := " "
 	for {
 		_, err := discord.ChannelMessageEditComplex(&discordgo.MessageEdit{
 			Channel: a.channelID,
 			ID:      se.msgID,
+			Content: &emptyString,
 			Embed:   newMsgFromStream(se.stream, state),
 		})
 		time.Sleep(time.Second) // avoid 5 posts / 5s rate limit

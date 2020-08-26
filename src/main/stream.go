@@ -69,6 +69,11 @@ func newStreamFromMsg(msg *discordgo.Message) *stream {
 	return &s
 }
 
+// called only in msgAdd to generate a basic push-notification embed; gets edited by msgEdit right after
+func newMsgStubFromStream(s *stream) *discordgo.MessageSend {
+	return &discordgo.MessageSend{Content: fmt.Sprintf("%s: %s", s.user, s.title)}
+}
+
 // called only in msgEdit to generate embeds for messages
 func newMsgFromStream(s *stream, state int) *discordgo.MessageEmbed {
 	return &discordgo.MessageEmbed{
