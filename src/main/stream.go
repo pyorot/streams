@@ -35,13 +35,9 @@ func newStreamFromTwitch(r *helix.Stream) *stream {
 		title:     r.Title,
 		start:     r.StartedAt,
 		thumbnail: r.ThumbnailURL[:indexUserEnd+1] + "440x248.jpg",
+		filter:    calcFilter(r),
 		// length is not set until stream goes down
 	}
-	if dir.Get(strings.ToLower(s.user)) != "" {
-		s.filter = 2
-	} else if filterStream(r) {
-		s.filter = 1
-	} // else zero-initialised
 	return s
 }
 
@@ -90,11 +86,23 @@ func newMsgFromStream(s *stream, state int) *discordgo.MessageEmbed {
 	}
 }
 
+func calcFilter(r *helix.Stream) int {
+	if filterStream(r, blockTags, blockKeywords) {
+		return -1
+	} else if dir.Get(strings.ToLower(r.UserName)) != "" {
+		return 2
+	} else if filterStream(r, filterTags, filterKeywords) {
+		return 1
+	} else {
+		return 0
+	}
+}
+
 // called only in newStreamFromTwitch – the filter is run on incoming data and used only when a new msg is made
-func filterStream(r *helix.Stream) bool {
+func filterStream(r *helix.Stream, tags []string, keywords []string) bool {
 	// check tags
 	for _, tag1 := range r.TagIDs {
-		for _, tag2 := range filterTags {
+		for _, tag2 := range tags {
 			if tag1 == tag2 {
 				return true
 			}
@@ -102,7 +110,7 @@ func filterStream(r *helix.Stream) bool {
 	}
 	// check keywords
 	title := strings.ToLower(r.Title)
-	for _, keyword := range filterKeywords {
+	for _, keyword := range keywords {
 		if strings.Contains(title, keyword) {
 			return true
 		}

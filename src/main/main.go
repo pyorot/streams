@@ -24,6 +24,7 @@ var dirEnabled, twitchEnabled bool      // settings flags: guard some inits and 
 var twitch *helix.Client                // Twitch client
 var discord *discordgo.Session          // Discord client
 var filterTags, filterKeywords []string // Twitch tags and title keywords to filter by
+var blockTags, blockKeywords []string   //
 var dirLastLoad time.Time               // last time dir was loaded (0 if dir non-existent)
 
 // runs on program start
@@ -45,6 +46,14 @@ func init() {
 	if rawKeywords := Env.GetOrEmpty("FILTER_KEYWORDS"); rawKeywords != "" {
 		filterKeywords = strings.Split(rawKeywords, ",")
 		Log.Insta <- fmt.Sprintf(". | filter keywords [%d]: %s", len(filterKeywords), filterKeywords)
+	}
+	if rawBlockTags := Env.GetOrEmpty("BLOCK_TAGS"); rawBlockTags != "" {
+		blockTags = strings.Split(rawBlockTags, ",")
+		Log.Insta <- fmt.Sprintf(". | block tags [%d]: %s", len(blockTags), blockTags)
+	}
+	if rawBlockKeywords := Env.GetOrEmpty("BLOCK_KEYWORDS"); rawBlockKeywords != "" {
+		blockKeywords = strings.Split(rawBlockKeywords, ",")
+		Log.Insta <- fmt.Sprintf(". | block keywords [%d]: %s", len(blockKeywords), blockKeywords)
 	}
 	if url := Env.GetOrEmpty("MSG_ICON"); url != "" {
 		iconURL[0], iconURL[1], iconURL[2] = url, url, url
@@ -117,9 +126,9 @@ func main() {
 			new, err := fetch() // synchronous Twitch http call
 			if err == nil {
 				Log.Bkgd <- fmt.Sprintf("< | %s", now.Format("15:04:05"))
-				// prune blocked names
-				for user := range new {
-					if dir.IsBlocked(user) {
+				// prune blocked streams
+				for user, stream := range new {
+					if dir.IsBlocked(user) || stream.filter == -1 {
 						delete(new, user)
 					}
 				}
