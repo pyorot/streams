@@ -78,12 +78,11 @@ func add(s *discordgo.Session, pu *discordgo.PresenceUpdate) {
 		if filter {
 			k, v := a.URL[strings.LastIndex(a.URL, "/")+1:], pu.User.ID
 			lock.Lock()
-			defer lock.Unlock()
-			if data[k] != v { // add only if new
-				data[k] = v
-				if managed {
-					addCh <- struct{ k, v string }{k, v}
-				}
+			diff := data[k] != v // add to dir only if new
+			data[k] = v          // update internal dir either way
+			lock.Unlock()
+			if managed && diff {
+				addCh <- struct{ k, v string }{k, v}
 			}
 		}
 	}
