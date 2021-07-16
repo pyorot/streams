@@ -63,7 +63,7 @@ The settings are:
 * **TWITCH_ID** – Twitch API key.
 * **TWITCH_SEC** – Twitch API secret (required since May 2020).
 * **DISCORD** – Discord API token.
-* **GAME_ID** – ID of the game to track (requires an API request to find out).
+* **GAME_ID** – IDs of the game to track (requires an API request to find out), have to be comma separated without spaces.
 * **MSG_CHANNELS** – list of Discord channel IDs separated by commas, no spaces. Prepend + for filtered channels and * for unfiltered. E.g. `+693315004228698142,*296066428694429697`.
 * **MSG_ICON** – custom icon for message embeds.
 * **MSG_ICON_PASS** – icon for streams that pass the filter (tag/keyword/dir); requires and overrides `MSG_ICON`.
