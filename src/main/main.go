@@ -91,7 +91,7 @@ func init() {
 		})
 		ExitIfError(err)
 		getStreamsParams = helix.StreamsParams{
-			GameIDs: []string{Env.GetOrExit("GAME_ID")}, // list of games to query
+			GameIDs: strings.Split(Env.GetOrExit("GAME_ID"), ","), // list of games to query
 			First:   100,                                // maximum query results (limit is 100)
 		}
 	}
