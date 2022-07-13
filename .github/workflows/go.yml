@@ -2,7 +2,7 @@ name: go-compile
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "github-action-build" ]
   pull_request:
     branches: [ "master" ]
 
