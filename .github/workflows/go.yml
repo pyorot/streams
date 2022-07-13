@@ -19,7 +19,7 @@ jobs:
         go-version: 1.15
 
     - name: Build
-      run: go build -o build -v ./src/...
+      run: go build -o build -v ./src/main
     
     - name: Upload
       uses: actions/upload-artifact@v3.1.0
