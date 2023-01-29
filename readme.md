@@ -1,4 +1,7 @@
-***Working on v3 – all docs are out of date.***
+**Version Notice**  
+The last version of this program that I remember testing (from 2020/10/20) is released as v2.9. Since then, I found one extra commit from the same day that I'd misplaced, and there were another two from a pull request in 2021/08 (#1). These together are released as v3, and bring 3 additional features (vs v2.9) – tag/keyword blocking, multiple games, pagination (for fetching >100 streams). I had intended to document and release v3 in 2020 once incoming features had dried up but I never did, so the below readme is for v2. However, I believe v3 is stable and works with the Twitch and Discord APIs of 2021/08/11, when it was last worked on. Thanks to lepelog for contributing. It was a very solid and extremely reliable program that served the SMS, TWWHD and Skyward Sword (RTA and randomiser) speedrunning communities well.
+
+---
 
 # Streams
 This is a bot that **tracks who's streaming a particular game** on Twitch, and:
@@ -63,7 +66,7 @@ The settings are:
 * **TWITCH_ID** – Twitch API key.
 * **TWITCH_SEC** – Twitch API secret (required since May 2020).
 * **DISCORD** – Discord API token.
-* **GAME_ID** – IDs of the game to track (requires an API request to find out), have to be comma separated without spaces.
+* **GAME_ID** – ID of the game to track (requires an API request to find out).
 * **MSG_CHANNELS** – list of Discord channel IDs separated by commas, no spaces. Prepend + for filtered channels and * for unfiltered. E.g. `+693315004228698142,*296066428694429697`.
 * **MSG_ICON** – custom icon for message embeds.
 * **MSG_ICON_PASS** – icon for streams that pass the filter (tag/keyword/dir); requires and overrides `MSG_ICON`.
